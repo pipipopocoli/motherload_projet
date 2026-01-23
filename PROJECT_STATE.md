@@ -1,0 +1,24 @@
+# motherload_projet — PROJECT_STATE (Phase 1)
+
+## Commandes
+- Activer venv: source .venv/bin/activate
+- Lancer demo: python -m motherload_projet.cli --demo
+
+## Data library (sur Desktop)
+ROOT: ~/Desktop/grand_librairy
+- collections/            (collections + sous-collections)
+- bibliotheque/           (fichiers de run)
+  - archives/             (anciens to_be_downloaded_*)
+- reports/                (rapports)
+- pdfs/                   (PDFs plus tard)
+- logs/                   (optionnel)
+- game/                   (optionnel)
+
+## Outputs par run (Phase 1)
+- bibliotheque/bibliotheque_YYYYMMDD_HHMM.csv
+- bibliotheque/to_be_downloaded_YYYYMMDD_HHMM.csv
+- reports/run_report_YYYYMMDD_HHMM.txt
+Règle: archiver les anciens to_be_downloaded_* dans bibliotheque/archives (garder le plus récent accessible).
+
+## Statut
+Phase 1 validée: structure + demo + fichiers horodatés + archivage + report.
