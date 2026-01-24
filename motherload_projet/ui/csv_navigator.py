@@ -4,9 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-import shutil
-import subprocess
-import sys
 
 
 @dataclass(frozen=True)
@@ -15,6 +12,9 @@ class Entry:
 
     kind: str
     path: Path
+
+
+_LAST_CANCELLED_BY_INTERRUPT = False
 
 
 def _list_entries(current: Path, filter_text: str | None) -> list[Entry]:
@@ -33,27 +33,36 @@ def _list_entries(current: Path, filter_text: str | None) -> list[Entry]:
     return entries
 
 
-def _copy_to_clipboard(text: str) -> bool:
-    """Copie du texte dans le presse papier si possible."""
-    if sys.platform.startswith("darwin"):
-        cmd = ["pbcopy"]
-    elif sys.platform.startswith("win"):
-        cmd = ["clip"]
-    else:
-        cmd = ["xclip", "-selection", "clipboard"]
-
-    if shutil.which(cmd[0]) is None:
-        return False
-
+def _read_input(prompt: str) -> str | None:
+    """Lit une entree utilisateur."""
+    global _LAST_CANCELLED_BY_INTERRUPT
     try:
-        subprocess.run(cmd, input=text.encode("utf-8"), check=True)
-    except (OSError, subprocess.CalledProcessError):
-        return False
-    return True
+        return input(prompt)
+    except KeyboardInterrupt:
+        _LAST_CANCELLED_BY_INTERRUPT = True
+        print("Annulé")
+        return None
 
 
-def navigate_csv(start_dir: Path | str | None = None) -> str | None:
-    """Navigue pour choisir un fichier CSV."""
+def _resolve_pasted_path(value: str) -> Path | None:
+    """Valide un chemin colle."""
+    cleaned = value.strip().strip("'").strip('"')
+    if not cleaned:
+        return None
+    candidate = Path(cleaned).expanduser()
+    if not candidate.is_absolute():
+        return None
+    if not candidate.is_file():
+        return None
+    if candidate.suffix.lower() != ".csv":
+        return None
+    return candidate.resolve()
+
+
+def select_csv(start_dir: Path | str | None = None) -> Path | None:
+    """Selectionne un fichier CSV."""
+    global _LAST_CANCELLED_BY_INTERRUPT
+    _LAST_CANCELLED_BY_INTERRUPT = False
     if start_dir is None:
         start_dir = Path.home() / "Desktop"
 
@@ -70,7 +79,7 @@ def navigate_csv(start_dir: Path | str | None = None) -> str | None:
             print(f"Filtre: {filter_text}")
         print("0) ..")
         for index, entry in enumerate(entries, start=1):
-            label = "D" if entry.kind == "dir" else "CSV"
+            label = "D" if entry.kind == "dir" else "F"
             print(f"{index}) [{label}] {entry.path.name}")
 
         print(
@@ -78,23 +87,32 @@ def navigate_csv(start_dir: Path | str | None = None) -> str | None:
             "s=filtrer, p=coller chemin, q=quit"
         )
 
-        choice = input("> ").strip()
+        choice = _read_input("> ")
+        if choice is None:
+            return None
+        choice = choice.strip()
         if not choice:
             continue
 
         lowered = choice.lower()
         if lowered == "q":
+            _LAST_CANCELLED_BY_INTERRUPT = False
             return None
         if lowered == "s":
-            filter_text = input("Filtre: ").strip()
+            value = _read_input("Filtre: ")
+            if value is None:
+                return None
+            filter_text = value.strip()
             continue
         if lowered == "p":
-            path_text = str(current)
-            if _copy_to_clipboard(path_text):
-                print("Chemin copie dans le presse papier.")
-            else:
-                print(path_text)
-            continue
+            value = _read_input("Chemin: ")
+            if value is None:
+                return None
+            path = _resolve_pasted_path(value)
+            if path is None:
+                print("Chemin invalide.")
+                continue
+            return path
 
         if choice.isdigit():
             index = int(choice)
@@ -114,6 +132,20 @@ def navigate_csv(start_dir: Path | str | None = None) -> str | None:
                 current = entry.path
                 continue
 
-            return str(entry.path.resolve())
+            _LAST_CANCELLED_BY_INTERRUPT = False
+            return entry.path.resolve()
 
         print("Commande inconnue.")
+
+
+def was_cancelled_by_interrupt() -> bool:
+    """Indique une annulation par Ctrl+C."""
+    return _LAST_CANCELLED_BY_INTERRUPT
+
+
+def navigate_csv(start_dir: Path | str | None = None) -> str | None:
+    """Compatibilite pour navigation CSV."""
+    selected = select_csv(start_dir)
+    if selected is None:
+        return None
+    return str(selected)
