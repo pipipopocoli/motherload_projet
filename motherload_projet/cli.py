@@ -28,6 +28,18 @@ from motherload_projet.workflow.run_unpaywall_batch import (
     run_unpaywall_demo_batch,
     run_unpaywall_queue,
 )
+from motherload_projet.workflow.uqar_proxy_ingest import (
+    infer_run_csv_path,
+    ingest_manual_pdfs,
+    manual_import_dir_for_collection,
+    resolve_collection_for_ingest,
+)
+from motherload_projet.workflow.uqar_proxy_queue import (
+    export_proxy_queue,
+    latest_proxy_queue,
+    latest_to_be_downloaded,
+    open_proxy_queue,
+)
 
 UNPAYWALL_DEMO_DOIS = [
     "10.7717/peerj.4375",
@@ -247,6 +259,106 @@ def _run_unpaywall_run_csv(limit: int | None, verbose_progress: bool) -> int:
     )
 
 
+def _run_uqar_proxy_export() -> int:
+    """Exporte la proxy_queue UQAR."""
+    bib_root = ensure_dir(bibliotheque_root())
+    source = latest_to_be_downloaded(bib_root)
+    if source is None:
+        try:
+            source = select_csv(Path.home() / "Desktop")
+        except KeyboardInterrupt:
+            print("Annulé")
+            return 0
+        if source is None:
+            if not was_cancelled_by_interrupt():
+                print("Annulé")
+            return 0
+
+    try:
+        result = export_proxy_queue(source)
+    except Exception as exc:
+        print(f"Erreur export proxy_queue: {exc}")
+        return 2
+    print(f"Proxy queue: {result['proxy_queue_path']}")
+    print(f"Rapport: {result['report_path']}")
+    return 0
+
+
+def _run_uqar_proxy_open() -> int:
+    """Ouvre un lien UQAR depuis la proxy_queue."""
+    bib_root = ensure_dir(bibliotheque_root())
+    queue_path = latest_proxy_queue(bib_root)
+    if queue_path is None:
+        try:
+            queue_path = select_csv(Path.home() / "Desktop")
+        except KeyboardInterrupt:
+            print("Annulé")
+            return 0
+        if queue_path is None:
+            if not was_cancelled_by_interrupt():
+                print("Annulé")
+            return 0
+    return open_proxy_queue(queue_path)
+
+
+def _run_uqar_proxy_ingest() -> int:
+    """Ingere les PDFs du proxy UQAR."""
+    bib_root = ensure_dir(bibliotheque_root())
+    proxy_queue_path = latest_proxy_queue(bib_root)
+    if proxy_queue_path is None:
+        try:
+            proxy_queue_path = select_csv(Path.home() / "Desktop")
+        except KeyboardInterrupt:
+            print("Annulé")
+            return 0
+        if proxy_queue_path is None:
+            if not was_cancelled_by_interrupt():
+                print("Annulé")
+            return 0
+
+    run_csv_path = infer_run_csv_path(proxy_queue_path)
+    if run_csv_path is None:
+        try:
+            run_csv_path = select_csv(Path.home() / "Desktop")
+        except KeyboardInterrupt:
+            print("Annulé")
+            return 0
+        if run_csv_path is None:
+            if not was_cancelled_by_interrupt():
+                print("Annulé")
+            return 0
+
+    try:
+        proxy_queue_df = pd.read_csv(proxy_queue_path)
+        run_df = pd.read_csv(run_csv_path)
+    except Exception as exc:
+        print(f"Erreur lecture CSV: {exc}")
+        return 2
+
+    collection = resolve_collection_for_ingest(proxy_queue_df, run_df)
+    if collection is None:
+        print("Annulé")
+        return 0
+
+    manual_import_dir = manual_import_dir_for_collection(collection)
+    result = ingest_manual_pdfs(
+        collection, manual_import_dir, proxy_queue_path, run_csv_path
+    )
+    if result.get("status") == "error":
+        print(f"ERREUR: {result.get('message')}")
+        return 2
+    if result.get("status") == "empty":
+        print(result.get("message"))
+        return 0
+
+    print("")
+    print(f"Bibliotheque: {result['bibliotheque_path']}")
+    print(f"A telecharger: {result['to_be_downloaded_path']}")
+    print(f"Rapport: {result['report_path']}")
+    print(f"Catalog diff: {result['catalog_diff']}")
+    return 0
+
+
 def _timestamp_tag() -> str:
     """Genere un horodatage pour les fichiers."""
     return datetime.now().strftime("%Y%m%d_%H%M")
@@ -347,6 +459,21 @@ def _parse_args() -> argparse.Namespace:
         help="Lance un batch Unpaywall depuis la queue.",
     )
     parser.add_argument(
+        "--uqar-proxy-export",
+        action="store_true",
+        help="Exporte une proxy_queue UQAR depuis to_be_downloaded.",
+    )
+    parser.add_argument(
+        "--uqar-proxy-open",
+        action="store_true",
+        help="Ouvre un lien UQAR depuis la proxy_queue.",
+    )
+    parser.add_argument(
+        "--uqar-proxy-ingest",
+        action="store_true",
+        help="Ingere les PDFs du dossier manual_import.",
+    )
+    parser.add_argument(
         "--verbose-progress",
         action="store_true",
         help="Affiche une progression detaillee.",
@@ -376,6 +503,12 @@ def main() -> None:
         raise SystemExit(_make_sample_csv())
     if args.oa_smoke:
         raise SystemExit(_run_oa_smoke())
+    if args.uqar_proxy_export:
+        raise SystemExit(_run_uqar_proxy_export())
+    if args.uqar_proxy_open:
+        raise SystemExit(_run_uqar_proxy_open())
+    if args.uqar_proxy_ingest:
+        raise SystemExit(_run_uqar_proxy_ingest())
     if args.unpaywall_fetch_one:
         raise SystemExit(_run_unpaywall_fetch_one(args.doi))
     if args.unpaywall_demo_batch:

@@ -24,6 +24,7 @@ def resolve_pdf_urls_from_unpaywall(doi: str) -> dict[str, Any]:
             "error": "UNPAYWALL_EMAIL manquant (voir .env.example)",
             "is_oa": None,
             "oa_status": None,
+            "url_for_pdf": None,
         }
 
     try:
@@ -37,12 +38,22 @@ def resolve_pdf_urls_from_unpaywall(doi: str) -> dict[str, Any]:
             "error": str(exc),
             "is_oa": None,
             "oa_status": None,
+            "url_for_pdf": None,
         }
 
     candidates = extract_pdf_candidates(record)
     status = "ok" if candidates else "no_candidates"
     is_oa = record["is_oa"] if "is_oa" in record else None
     oa_status = record["oa_status"] if "oa_status" in record else None
+    best_location = record.get("best_oa_location")
+    url_for_pdf = None
+    if isinstance(best_location, dict):
+        url_for_pdf = best_location.get("url_for_pdf")
+    if not url_for_pdf:
+        for candidate in candidates:
+            if candidate.get("kind") == "pdf":
+                url_for_pdf = candidate.get("url")
+                break
     return {
         "doi": doi,
         "candidates": candidates,
@@ -51,4 +62,5 @@ def resolve_pdf_urls_from_unpaywall(doi: str) -> dict[str, Any]:
         "error": None,
         "is_oa": is_oa,
         "oa_status": oa_status,
+        "url_for_pdf": url_for_pdf,
     }

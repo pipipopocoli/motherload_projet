@@ -7,3 +7,5 @@ Journal de bord du projet.
 - 2026-01-24 04:37: Phase 2.4: navigateur CSV + annulation propre + sample csv.
 - 2026-01-24 14:59: Phase 2.5: progression, master catalog, queue runner.
 - 2026-01-24 16:44: Phase 2.6: progress verbose + ETA glissante.
+- 2026-01-24 23:09: Phase 2.6: progress live + diagnostics OA/HTTP.
+- 2026-01-25 21:26: Phase 2.7: proxy UQAR (export/open/ingest) + import manuel PDFs.

@@ -89,6 +89,11 @@ def sync_catalog(run_bibliotheque_csv: Path | str) -> dict[str, Any]:
         "reason_code",
         "pdf_path",
         "final_url",
+        "is_oa",
+        "oa_status",
+        "url_for_pdf",
+        "last_http_status",
+        "tried_methods",
         "collection",
     ]
     for name in required:
@@ -135,6 +140,11 @@ def sync_catalog(run_bibliotheque_csv: Path | str) -> dict[str, Any]:
                 "reason_code",
                 "pdf_path",
                 "final_url",
+                "is_oa",
+                "oa_status",
+                "url_for_pdf",
+                "last_http_status",
+                "tried_methods",
                 "collection",
             ]:
                 record[name] = row_dict.get(name, "")
@@ -166,6 +176,11 @@ def sync_catalog(run_bibliotheque_csv: Path | str) -> dict[str, Any]:
         "reason_code",
         "pdf_path",
         "final_url",
+        "is_oa",
+        "oa_status",
+        "url_for_pdf",
+        "last_http_status",
+        "tried_methods",
         "collection",
         "last_seen_run",
     ]

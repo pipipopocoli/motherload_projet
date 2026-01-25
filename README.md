@@ -46,6 +46,38 @@ python -m motherload_projet.cli --unpaywall-run-queue
 
 Option: ajouter `--verbose-progress` pour un affichage detaille.
 
+## Phase 2.6 (Unpaywall) - progress live + diagnostics
+
+- Progression compacte par defaut (ligne unique + ETA).
+- Option: `--verbose-progress` pour une ligne par item avec method.
+- Colonnes ajoutees: is_oa, oa_status, url_for_pdf, last_http_status, tried_methods.
+
+## Plan B UQAR Proxy (manuel assiste)
+
+1) Run Unpaywall (CSV ou queue) pour generer un `to_be_downloaded_*.csv`
+2) Exporter la proxy queue:
+
+```bash
+python -m motherload_projet.cli --uqar-proxy-export
+```
+
+3) Ouvrir un lien UQAR:
+
+```bash
+python -m motherload_projet.cli --uqar-proxy-open
+```
+
+4) Telecharger le PDF via le navigateur (acces institutionnel)
+5) Deposer les PDFs dans:
+   `~/Desktop/grand_librairy/pdfs/<collection>/manual_import/`
+6) Ingerer les PDFs:
+
+```bash
+python -m motherload_projet.cli --uqar-proxy-ingest
+```
+
+Notes: pas d'automatisation de login/proxy, pas de bypass paywall.
+
 ## Emplacements des fichiers
 
 - Racine des donnees: `~/Desktop/grand_librairy`

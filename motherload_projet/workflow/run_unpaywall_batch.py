@@ -111,13 +111,27 @@ def _format_doi(value: Any, index: int) -> str:
 def _format_eta(seconds: float) -> str:
     """Formate un ETA."""
     if seconds <= 0:
-        return "--:--"
+        return "00:00:00"
     total = int(seconds + 0.5)
     minutes, sec = divmod(total, 60)
     hours, minutes = divmod(minutes, 60)
-    if hours:
-        return f"{hours:02d}:{minutes:02d}:{sec:02d}"
-    return f"{minutes:02d}:{sec:02d}"
+    return f"{hours:02d}:{minutes:02d}:{sec:02d}"
+
+
+def _parse_bool(value: Any) -> bool | None:
+    """Parse un booleen."""
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return None
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if not text or text == "nan":
+        return None
+    if text in {"true", "1", "yes", "y"}:
+        return True
+    if text in {"false", "0", "no", "n"}:
+        return False
+    return None
 
 
 def _short_title(title: Any, max_len: int = 40) -> str:
@@ -163,9 +177,9 @@ def _verbose_item_line(
     done: int,
     total: int,
     doi: str,
-    title: Any,
     status: str,
     reason: str,
+    method: str,
     elapsed: float,
     bytes_len: int | None,
     ok_count: int,
@@ -177,11 +191,11 @@ def _verbose_item_line(
         done, total, ok_count, fail_count, durations
     )
     bytes_value = bytes_len if bytes_len is not None else 0
-    short_title = _short_title(title)
+    method_value = method or "-"
     return (
-        f"[{done}/{total}] DOI={doi} title={short_title} -> "
+        f"[{done}/{total}] DOI={doi} -> "
         f"status={status} reason={reason} "
-        f"(secs={elapsed:.1f}, bytes={bytes_value}) | "
+        f"(t={elapsed:.1f}, bytes={bytes_value}) method={method_value} | "
         f"OK {ok_count} FAIL {fail_count} ({rate:.1%}) | "
         f"{items_per_sec:.2f} items/s | ETA {eta_text}"
     )
@@ -192,6 +206,13 @@ def _ensure_str_columns(df: pd.DataFrame, columns: list[str]) -> None:
     for name in columns:
         if name in df.columns:
             df[name] = df[name].fillna("").astype(str)
+
+
+def _print_compact_progress(line: str, previous_len: int) -> int:
+    """Affiche une progression compacte."""
+    padded = line.ljust(previous_len)
+    print(f"\r{padded}", end="", flush=True)
+    return len(padded)
 
 
 def _collection_label(collection: Path) -> str:
@@ -275,6 +296,18 @@ def _write_batch_outputs(
     failed = total - downloaded
     rate = (downloaded / total) if total else 0.0
     reason_counts = Counter(failed_df["reason_code"])
+    oa_true: int | None = None
+    oa_false: int | None = None
+    if "is_oa" in df.columns:
+        oa_flags = [_parse_bool(value) for value in df["is_oa"]]
+        oa_true = sum(flag is True for flag in oa_flags)
+        oa_false = sum(flag is False for flag in oa_flags)
+    http_counts = Counter()
+    if "last_http_status" in df.columns:
+        for value in df["last_http_status"]:
+            text = str(value).strip()
+            if text and text.lower() != "nan":
+                http_counts[text] += 1
 
     report_lines = [
         report_title,
@@ -284,18 +317,27 @@ def _write_batch_outputs(
         f"Taux de recuperation: {rate:.1%}",
         f"Duree: {duration_sec:.1f}s",
         f"Vitesse moyenne: {avg_rate:.2f} items/s",
-        "Raisons d echec:",
     ]
     if downloaded and duration_sec > 0:
         pdf_rate = downloaded / (duration_sec / 60)
-        report_lines.insert(
-            7, f"Vitesse moyenne PDF: {pdf_rate:.2f} pdf/min"
-        )
+        report_lines.append(f"Vitesse moyenne PDF: {pdf_rate:.2f} pdf/min")
+    if oa_true is not None and oa_false is not None:
+        report_lines.append(f"OA True: {oa_true}")
+        report_lines.append(f"OA False: {oa_false}")
+
+    report_lines.append("Raisons d echec:")
     if reason_counts:
         for reason, count in reason_counts.most_common():
             report_lines.append(f"- {reason}: {count}")
     else:
         report_lines.append("- aucune")
+
+    report_lines.append("HTTP status:")
+    if http_counts:
+        for status, count in http_counts.most_common():
+            report_lines.append(f"- {status}: {count}")
+    else:
+        report_lines.append("- aucun")
 
     report_lines.append("DOI en echec:")
     if failed_df.empty:
@@ -346,11 +388,24 @@ def attempt_unpaywall_download(
             on_try(method)
 
     result = resolve_pdf_urls_from_unpaywall(doi)
+    is_oa = result.get("is_oa")
+    oa_status = result.get("oa_status")
+    url_for_pdf = result.get("url_for_pdf")
     candidates = result.get("candidates", [])
     candidates_total = len(candidates)
     tried_count = 0
     last_reason: str | None = None
     last_final_url: str | None = None
+    last_http_status: int | None = None
+    tried_methods: list[str] = []
+    last_method: str | None = None
+
+    def record_method(method: str) -> None:
+        nonlocal last_method
+        last_method = method
+        if method not in tried_methods:
+            tried_methods.append(method)
+        emit_try(method)
 
     if result.get("status") == "error":
         return {
@@ -363,6 +418,12 @@ def attempt_unpaywall_download(
             "tried_count": tried_count,
             "error": result.get("error") or "Unpaywall error",
             "pdf_bytes_len": None,
+            "is_oa": is_oa,
+            "oa_status": oa_status,
+            "url_for_pdf": url_for_pdf,
+            "last_http_status": last_http_status,
+            "tried_methods": "",
+            "last_method": last_method,
         }
 
     if not candidates:
@@ -376,6 +437,12 @@ def attempt_unpaywall_download(
             "tried_count": tried_count,
             "error": None,
             "pdf_bytes_len": None,
+            "is_oa": is_oa,
+            "oa_status": oa_status,
+            "url_for_pdf": url_for_pdf,
+            "last_http_status": last_http_status,
+            "tried_methods": "",
+            "last_method": last_method,
         }
 
     for candidate in candidates:
@@ -384,15 +451,17 @@ def attempt_unpaywall_download(
         if not url:
             continue
         if kind == "pdf":
-            emit_try("unpaywall url_for_pdf")
+            record_method("unpaywall_url_for_pdf")
         elif kind == "landing":
-            emit_try("unpaywall landing")
+            record_method("unpaywall_landing")
         else:
-            emit_try(f"unpaywall {kind}")
+            record_method(f"unpaywall_{kind}")
         emit(f"Essai: {kind} {url}")
         ok, status_code, content_type, final_url, content, error_code = fetch_url(url)
         tried_count += 1
         last_final_url = final_url or url
+        if status_code:
+            last_http_status = status_code
         if not ok:
             last_reason = _map_fetch_failure(status_code, error_code)
             emit(f"Echec fetch ({status_code})")
@@ -412,6 +481,12 @@ def attempt_unpaywall_download(
                 "tried_count": tried_count,
                 "error": None,
                 "pdf_bytes_len": len(content),
+                "is_oa": is_oa,
+                "oa_status": oa_status,
+                "url_for_pdf": url_for_pdf,
+                "last_http_status": last_http_status,
+                "tried_methods": "|".join(tried_methods),
+                "last_method": last_method,
             }
 
         if kind == "landing" and _is_html_content(content_type, content):
@@ -422,12 +497,14 @@ def attempt_unpaywall_download(
             elif last_reason is None:
                 last_reason = "NO_PDF_FOUND"
             for pdf_url in pdf_urls:
-                emit_try("harvested link")
+                record_method("landing_pdf_link")
                 ok_pdf_url, status_code, _, final_pdf_url, pdf_bytes, error_code = (
                     fetch_url(pdf_url)
                 )
                 tried_count += 1
                 last_final_url = final_pdf_url or pdf_url
+                if status_code:
+                    last_http_status = status_code
                 if not ok_pdf_url:
                     last_reason = _map_fetch_failure(status_code, error_code)
                     emit(f"Echec fetch ({status_code}): {final_pdf_url}")
@@ -448,6 +525,12 @@ def attempt_unpaywall_download(
                         "tried_count": tried_count,
                         "error": None,
                         "pdf_bytes_len": len(pdf_bytes),
+                        "is_oa": is_oa,
+                        "oa_status": oa_status,
+                        "url_for_pdf": url_for_pdf,
+                        "last_http_status": last_http_status,
+                        "tried_methods": "|".join(tried_methods),
+                        "last_method": last_method,
                     }
                 last_reason = _map_validation_code(code)
                 emit(f"PDF invalide: {code}")
@@ -469,6 +552,12 @@ def attempt_unpaywall_download(
         "tried_count": tried_count,
         "error": None,
         "pdf_bytes_len": None,
+        "is_oa": is_oa,
+        "oa_status": oa_status,
+        "url_for_pdf": url_for_pdf,
+        "last_http_status": last_http_status,
+        "tried_methods": "|".join(tried_methods),
+        "last_method": last_method,
     }
 
 
@@ -519,8 +608,26 @@ def run_unpaywall_demo_batch(verbose_progress: bool = False) -> int:
     df["reason_code"] = ""
     df["pdf_path"] = ""
     df["final_url"] = ""
+    df["is_oa"] = ""
+    df["oa_status"] = ""
+    df["url_for_pdf"] = ""
+    df["last_http_status"] = ""
+    df["tried_methods"] = ""
     df["collection"] = _collection_label(collection)
-    _ensure_str_columns(df, ["status", "reason_code", "pdf_path", "final_url"])
+    _ensure_str_columns(
+        df,
+        [
+            "status",
+            "reason_code",
+            "pdf_path",
+            "final_url",
+            "is_oa",
+            "oa_status",
+            "url_for_pdf",
+            "last_http_status",
+            "tried_methods",
+        ],
+    )
 
     total = len(df)
     processed = 0
@@ -529,25 +636,32 @@ def run_unpaywall_demo_batch(verbose_progress: bool = False) -> int:
     start_time = time.monotonic()
     durations: list[float] = []
     cancelled = False
+    progress_len = 0
 
     try:
         for index, row in df.iterrows():
             doi = str(row["doi"]).strip()
-            if not verbose_progress:
-                print("")
-                print(f"DOI: {doi}")
             item_start = time.monotonic()
-            on_try = (lambda method: print(f"trying: {method}")) if verbose_progress else None
             result = attempt_unpaywall_download(
-                doi, collection, min_pdf_kb=DEFAULT_MIN_PDF_KB, on_try=on_try
+                doi, collection, min_pdf_kb=DEFAULT_MIN_PDF_KB
             )
             status = result["status"]
             reason_code = result["reason_code"]
             bytes_len = result.get("pdf_bytes_len")
+            method = result.get("last_method") or ""
             df.at[index, "status"] = status
             df.at[index, "reason_code"] = reason_code
             df.at[index, "pdf_path"] = str(result["pdf_path"] or "")
             df.at[index, "final_url"] = result["final_url"] or ""
+            df.at[index, "is_oa"] = (
+                "" if result.get("is_oa") is None else str(result.get("is_oa"))
+            )
+            df.at[index, "oa_status"] = str(result.get("oa_status") or "")
+            df.at[index, "url_for_pdf"] = str(result.get("url_for_pdf") or "")
+            df.at[index, "last_http_status"] = str(
+                result.get("last_http_status") or ""
+            )
+            df.at[index, "tried_methods"] = str(result.get("tried_methods") or "")
 
             processed += 1
             if status == "downloaded":
@@ -566,25 +680,32 @@ def run_unpaywall_demo_batch(verbose_progress: bool = False) -> int:
                         processed,
                         total,
                         doi,
-                        row.get("title", ""),
                         status,
                         reason_code,
+                        method,
                         item_elapsed,
                         bytes_len,
                         ok_count,
                         fail_count,
                         durations,
-                    )
+                    ),
+                    flush=True,
                 )
             else:
-                print(f"Result: {status} ({reason_code})")
-                print(_progress_line(processed, total, ok_count, fail_count, durations))
+                progress_len = _print_compact_progress(
+                    _progress_line(processed, total, ok_count, fail_count, durations),
+                    progress_len,
+                )
     except KeyboardInterrupt:
         cancelled = True
-        print("Annulé")
+        if not verbose_progress and processed:
+            print("", flush=True)
+        print("Annulé", flush=True)
 
     if cancelled:
         _mark_unprocessed_as_error(df)
+    elif not verbose_progress and processed:
+        print("", flush=True)
 
     duration_sec = time.monotonic() - start_time
     avg_rate = (processed / duration_sec) if duration_sec > 0 else 0.0
@@ -649,9 +770,32 @@ def run_unpaywall_csv_batch(
         elif name not in df.columns:
             df[name] = df[source]
 
-    for name in ["status", "reason_code", "pdf_path", "final_url"]:
+    for name in [
+        "status",
+        "reason_code",
+        "pdf_path",
+        "final_url",
+        "is_oa",
+        "oa_status",
+        "url_for_pdf",
+        "last_http_status",
+        "tried_methods",
+    ]:
         df[name] = ""
-    _ensure_str_columns(df, ["status", "reason_code", "pdf_path", "final_url"])
+    _ensure_str_columns(
+        df,
+        [
+            "status",
+            "reason_code",
+            "pdf_path",
+            "final_url",
+            "is_oa",
+            "oa_status",
+            "url_for_pdf",
+            "last_http_status",
+            "tried_methods",
+        ],
+    )
 
     df["collection"] = _collection_label(collection)
 
@@ -668,6 +812,7 @@ def run_unpaywall_csv_batch(
     start_time = time.monotonic()
     durations: list[float] = []
     cancelled = False
+    progress_len = 0
 
     try:
         for offset, (index, row) in enumerate(df.iterrows(), start=1):
@@ -680,6 +825,12 @@ def run_unpaywall_csv_batch(
             pdf_path = ""
             final_url = ""
             bytes_len: int | None = None
+            method = ""
+            is_oa = ""
+            oa_status = ""
+            url_for_pdf = ""
+            last_http_status = ""
+            tried_methods = ""
 
             if item_type and item_type != "article":
                 status = "failed"
@@ -688,24 +839,30 @@ def run_unpaywall_csv_batch(
                 status = "failed"
                 reason_code = "MISSING_DOI"
             else:
-                on_try = (
-                    (lambda method: print(f"trying: {method}"))
-                    if verbose_progress
-                    else None
-                )
                 result = attempt_unpaywall_download(
-                    doi, collection, min_pdf_kb=DEFAULT_MIN_PDF_KB, on_try=on_try
+                    doi, collection, min_pdf_kb=DEFAULT_MIN_PDF_KB
                 )
                 status = result["status"]
                 reason_code = result["reason_code"]
                 pdf_path = str(result["pdf_path"] or "")
                 final_url = result["final_url"] or ""
                 bytes_len = result.get("pdf_bytes_len")
+                method = result.get("last_method") or ""
+                is_oa = "" if result.get("is_oa") is None else str(result.get("is_oa"))
+                oa_status = str(result.get("oa_status") or "")
+                url_for_pdf = str(result.get("url_for_pdf") or "")
+                last_http_status = str(result.get("last_http_status") or "")
+                tried_methods = str(result.get("tried_methods") or "")
 
             df.at[index, "status"] = status
             df.at[index, "reason_code"] = reason_code
             df.at[index, "pdf_path"] = pdf_path
             df.at[index, "final_url"] = final_url
+            df.at[index, "is_oa"] = is_oa
+            df.at[index, "oa_status"] = oa_status
+            df.at[index, "url_for_pdf"] = url_for_pdf
+            df.at[index, "last_http_status"] = last_http_status
+            df.at[index, "tried_methods"] = tried_methods
 
             processed = offset
             if status == "downloaded":
@@ -724,26 +881,32 @@ def run_unpaywall_csv_batch(
                         offset,
                         total,
                         doi or "<manquant>",
-                        row.get("title", ""),
                         status,
                         reason_code,
+                        method,
                         item_elapsed,
                         bytes_len,
                         ok_count,
                         fail_count,
                         durations,
-                    )
+                    ),
+                    flush=True,
                 )
-            elif progress_every and (offset % progress_every == 0 or offset == total):
-                print(
-                    _progress_line(offset, total, ok_count, fail_count, durations)
+            else:
+                progress_len = _print_compact_progress(
+                    _progress_line(offset, total, ok_count, fail_count, durations),
+                    progress_len,
                 )
     except KeyboardInterrupt:
         cancelled = True
-        print("Annulé")
+        if not verbose_progress and processed:
+            print("", flush=True)
+        print("Annulé", flush=True)
 
     if cancelled:
         _mark_unprocessed_as_error(df)
+    elif not verbose_progress and processed:
+        print("", flush=True)
 
     duration_sec = time.monotonic() - start_time
     avg_rate = (processed / duration_sec) if duration_sec > 0 else 0.0
@@ -796,10 +959,35 @@ def run_unpaywall_queue(
         if name not in df.columns:
             df[name] = ""
 
-    for name in ["status", "reason_code", "pdf_path", "final_url", "collection"]:
+    for name in [
+        "status",
+        "reason_code",
+        "pdf_path",
+        "final_url",
+        "collection",
+        "is_oa",
+        "oa_status",
+        "url_for_pdf",
+        "last_http_status",
+        "tried_methods",
+    ]:
         if name not in df.columns:
             df[name] = ""
-    _ensure_str_columns(df, ["status", "reason_code", "pdf_path", "final_url"])
+    _ensure_str_columns(
+        df,
+        [
+            "status",
+            "reason_code",
+            "pdf_path",
+            "final_url",
+            "collection",
+            "is_oa",
+            "oa_status",
+            "url_for_pdf",
+            "last_http_status",
+            "tried_methods",
+        ],
+    )
 
     status_series = df["status"].astype(str).str.strip().str.lower()
     failed_mask = status_series == "failed"
@@ -833,98 +1021,64 @@ def run_unpaywall_queue(
     start_time = time.monotonic()
     durations: list[float] = []
     cancelled = False
+    progress_len = 0
     for index in to_process:
         try:
             item_start = time.monotonic()
             doi = str(df.at[index, doi_column]).strip()
+            status = ""
+            reason_code = ""
+            pdf_path = ""
+            final_url = ""
+            bytes_len: int | None = None
+            method = ""
+            is_oa = ""
+            oa_status = ""
+            url_for_pdf = ""
+            last_http_status = ""
+            tried_methods = ""
             if not doi:
-                df.at[index, "status"] = "failed"
-                df.at[index, "reason_code"] = "MISSING_DOI"
-                processed += 1
-                fail_count += 1
-                item_elapsed = time.monotonic() - item_start
-                durations.append(item_elapsed)
-                if len(durations) > PROGRESS_WINDOW:
-                    durations.pop(0)
-                if verbose_progress:
-                    print(
-                        _verbose_item_line(
-                            processed,
-                            total,
-                            "<manquant>",
-                            df.at[index, "title"],
-                            "failed",
-                            "MISSING_DOI",
-                            item_elapsed,
-                            None,
-                            ok_count,
-                            fail_count,
-                            durations,
-                        )
+                status = "failed"
+                reason_code = "MISSING_DOI"
+            else:
+                collection_value = df.at[index, "collection"]
+                collection_path = _resolve_collection_path(
+                    collection_value, default_collection
+                )
+                if collection_path is None:
+                    status = "failed"
+                    reason_code = "ERROR"
+                else:
+                    collection_path = ensure_dir(collection_path)
+                    df.at[index, "collection"] = _collection_label(collection_path)
+                    result = attempt_unpaywall_download(
+                        doi, collection_path, min_pdf_kb=DEFAULT_MIN_PDF_KB
                     )
-                elif progress_every and (
-                    processed % progress_every == 0 or processed == total
-                ):
-                    print(
-                        _progress_line(processed, total, ok_count, fail_count, durations)
+                    status = result["status"]
+                    reason_code = result["reason_code"]
+                    pdf_path = str(result["pdf_path"] or "")
+                    final_url = result["final_url"] or ""
+                    bytes_len = result.get("pdf_bytes_len")
+                    method = result.get("last_method") or ""
+                    is_oa = (
+                        "" if result.get("is_oa") is None else str(result.get("is_oa"))
                     )
-                continue
+                    oa_status = str(result.get("oa_status") or "")
+                    url_for_pdf = str(result.get("url_for_pdf") or "")
+                    last_http_status = str(result.get("last_http_status") or "")
+                    tried_methods = str(result.get("tried_methods") or "")
 
-            collection_value = df.at[index, "collection"]
-            collection_path = _resolve_collection_path(
-                collection_value, default_collection
-            )
-            if collection_path is None:
-                df.at[index, "status"] = "failed"
-                df.at[index, "reason_code"] = "ERROR"
-                processed += 1
-                fail_count += 1
-                item_elapsed = time.monotonic() - item_start
-                durations.append(item_elapsed)
-                if len(durations) > PROGRESS_WINDOW:
-                    durations.pop(0)
-                if verbose_progress:
-                    print(
-                        _verbose_item_line(
-                            processed,
-                            total,
-                            doi,
-                            df.at[index, "title"],
-                            "failed",
-                            "ERROR",
-                            item_elapsed,
-                            None,
-                            ok_count,
-                            fail_count,
-                            durations,
-                        )
-                    )
-                elif progress_every and (
-                    processed % progress_every == 0 or processed == total
-                ):
-                    print(
-                        _progress_line(processed, total, ok_count, fail_count, durations)
-                    )
-                continue
-
-            collection_path = ensure_dir(collection_path)
-            df.at[index, "collection"] = _collection_label(collection_path)
-
-            on_try = (
-                (lambda method: print(f"trying: {method}"))
-                if verbose_progress
-                else None
-            )
-            result = attempt_unpaywall_download(
-                doi, collection_path, min_pdf_kb=DEFAULT_MIN_PDF_KB, on_try=on_try
-            )
-            df.at[index, "status"] = result["status"]
-            df.at[index, "reason_code"] = result["reason_code"]
-            df.at[index, "pdf_path"] = str(result["pdf_path"] or "")
-            df.at[index, "final_url"] = result["final_url"] or ""
+            df.at[index, "status"] = status
+            df.at[index, "reason_code"] = reason_code
+            df.at[index, "pdf_path"] = pdf_path
+            df.at[index, "final_url"] = final_url
+            df.at[index, "is_oa"] = is_oa
+            df.at[index, "oa_status"] = oa_status
+            df.at[index, "url_for_pdf"] = url_for_pdf
+            df.at[index, "last_http_status"] = last_http_status
+            df.at[index, "tried_methods"] = tried_methods
 
             processed += 1
-            status = result["status"]
             if status == "downloaded":
                 ok_count += 1
             else:
@@ -938,27 +1092,29 @@ def run_unpaywall_queue(
                     _verbose_item_line(
                         processed,
                         total,
-                        doi,
-                        df.at[index, "title"],
+                        doi or "<manquant>",
                         status,
-                        result["reason_code"],
+                        reason_code,
+                        method,
                         item_elapsed,
-                        result.get("pdf_bytes_len"),
+                        bytes_len,
                         ok_count,
                         fail_count,
                         durations,
-                    )
-                )
-            elif progress_every and (
-                processed % progress_every == 0 or processed == total
-            ):
-                print(
-                    _progress_line(processed, total, ok_count, fail_count, durations)
+                    ),
+                    flush=True,
                 )
         except KeyboardInterrupt:
             cancelled = True
-            print("Annulé")
+            if not verbose_progress and processed:
+                print("", flush=True)
+            print("Annulé", flush=True)
             break
+        if not verbose_progress:
+            progress_len = _print_compact_progress(
+                _progress_line(processed, total, ok_count, fail_count, durations),
+                progress_len,
+            )
 
     if cancelled:
         for index in to_process[processed:]:
@@ -966,6 +1122,8 @@ def run_unpaywall_queue(
                 df.at[index, "status"] = "failed"
             if str(df.at[index, "reason_code"]).strip() == "":
                 df.at[index, "reason_code"] = "ERROR"
+    elif not verbose_progress and processed:
+        print("", flush=True)
 
     duration_sec = time.monotonic() - start_time
     avg_rate = (processed / duration_sec) if duration_sec > 0 else 0.0

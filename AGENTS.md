@@ -17,6 +17,7 @@ Construire un outil Python pour:
 - Les outputs run vont dans:
   - ~/Desktop/grand_librairy/bibliotheque/
   - ~/Desktop/grand_librairy/reports/
+ - Ne jamais demander/stocker d'identifiants (proxy/EZproxy) ni tenter de bypass paywall.
 
 ## Philosophie de dev
 - Changements minimaux: ne pas refactoriser ce qui marche.
@@ -36,4 +37,3 @@ Construire un outil Python pour:
 - Logs lisibles, erreurs expliquées en 1 ligne.
 - Toujours retourner un reason_code clair (OK, NO_PDF_FOUND, MISSING_DOI, TIMEOUT, HTTP_403, HTTP_429, ERROR).
 - Gérer proprement l’annulation utilisateur (q, Ctrl+C): pas de stacktrace, message "Annulé".
-
