@@ -12,7 +12,9 @@ from pypdf import PdfReader
 
 from motherload_projet.library.master_catalog import load_master_catalog
 from motherload_projet.library.paths import bibliotheque_root, library_root
-from motherload_projet.workflow.uqar_proxy_queue import latest_to_be_downloaded
+from motherload_projet.data_mining.recuperation_article.uqar_proxy_queue import (
+    latest_to_be_downloaded,
+)
 
 
 def count_pdfs(root: Path | None = None) -> int:

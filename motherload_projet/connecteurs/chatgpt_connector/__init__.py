@@ -1,0 +1,1 @@
+"""Connecteur ChatGPT (stub)."""

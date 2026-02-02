@@ -10,7 +10,10 @@ from pathlib import Path
 import pandas as pd
 
 from motherload_projet.config import get_openalex_key, get_unpaywall_email
-from motherload_projet.ingest.local_pdf import ingest_pdf, write_manual_ingest_report
+from motherload_projet.local_pdf_update.local_pdf import (
+    ingest_pdf,
+    write_manual_ingest_report,
+)
 from motherload_projet.library.paths import (
     archives_root,
     bibliotheque_root,
@@ -19,23 +22,25 @@ from motherload_projet.library.paths import (
     library_root,
     reports_root,
 )
-from motherload_projet.oa.resolver import resolve_pdf_urls_from_unpaywall
-from motherload_projet.reporting.summary import write_report
+from motherload_projet.data_mining.recuperation_oa.resolver import (
+    resolve_pdf_urls_from_unpaywall,
+)
+from motherload_projet.rapport_activite.summary import write_report
 from motherload_projet.ui.collections_menu import choose_collection
 from motherload_projet.ui.csv_navigator import select_csv, was_cancelled_by_interrupt
-from motherload_projet.workflow.run_unpaywall_batch import (
+from motherload_projet.data_mining.recuperation_article.run_unpaywall_batch import (
     attempt_unpaywall_download,
     run_unpaywall_csv_batch,
     run_unpaywall_demo_batch,
     run_unpaywall_queue,
 )
-from motherload_projet.workflow.uqar_proxy_ingest import (
+from motherload_projet.data_mining.recuperation_article.uqar_proxy_ingest import (
     infer_run_csv_path,
     ingest_manual_pdfs,
     manual_import_dir_for_collection,
     resolve_collection_for_ingest,
 )
-from motherload_projet.workflow.uqar_proxy_queue import (
+from motherload_projet.data_mining.recuperation_article.uqar_proxy_queue import (
     export_proxy_queue,
     latest_proxy_queue,
     latest_to_be_downloaded,

@@ -20,7 +20,9 @@ from motherload_projet.library.paths import (
     reports_root,
 )
 from motherload_projet.ui.collections_menu import choose_collection
-from motherload_projet.workflow.run_unpaywall_batch import _write_batch_outputs
+from motherload_projet.data_mining.recuperation_article.run_unpaywall_batch import (
+    _write_batch_outputs,
+)
 
 DOI_PATTERN = re.compile(r"10\.\d{4,9}/[-._;()/:A-Z0-9]+", re.I)
 YEAR_PATTERN = re.compile(r"(19|20)\d{2}")

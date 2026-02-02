@@ -292,6 +292,10 @@ def upsert_manual_pdf_entry(
             value = str(entry_dict.get("isbn", "")).strip()
             if value and not str(df_master.at[index, "isbn"]).strip():
                 df_master.at[index, "isbn"] = value
+        if "doi" in entry_dict and "doi" in df_master.columns:
+            value = str(entry_dict.get("doi", "")).strip()
+            if value and not str(df_master.at[index, "doi"]).strip():
+                df_master.at[index, "doi"] = value
         if "title" in entry_dict and "title" in df_master.columns:
             value = str(entry_dict.get("title", "")).strip()
             if value and not str(df_master.at[index, "title"]).strip():
@@ -388,6 +392,11 @@ def upsert_scan_pdf_entry(
             value = str(entry_dict.get("isbn", "")).strip()
             if value and not str(df_master.at[match_index, "isbn"]).strip():
                 df_master.at[match_index, "isbn"] = value
+                updated = True
+        if "doi" in entry_dict and "doi" in df_master.columns:
+            value = str(entry_dict.get("doi", "")).strip()
+            if value and not str(df_master.at[match_index, "doi"]).strip():
+                df_master.at[match_index, "doi"] = value
                 updated = True
         if "title" in entry_dict and "title" in df_master.columns:
             value = str(entry_dict.get("title", "")).strip()

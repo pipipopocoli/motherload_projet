@@ -1,1 +1,0 @@
-"""Ingestion de donnees."""

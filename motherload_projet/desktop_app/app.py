@@ -15,7 +15,7 @@ from urllib.parse import unquote
 import pandas as pd
 
 from motherload_projet.config import get_manual_import_subdir
-from motherload_projet.ecosysteme_visualisation.deps import (
+from motherload_projet.maintenance_manager.deps import (
     list_outdated,
     start_auto_update,
     upgrade_requirements,
@@ -41,7 +41,7 @@ from motherload_projet.desktop_app.data import (
     zotero_counts,
 )
 from motherload_projet.desktop_app.state import compute_progress, load_state, reset_tasks, save_state
-from motherload_projet.ingest.local_pdf import (
+from motherload_projet.local_pdf_update.local_pdf import (
     ingest_pdf,
     scan_library_pdfs,
     write_manual_ingest_report,
@@ -52,7 +52,9 @@ from motherload_projet.library.paths import (
     ensure_dir,
     library_root,
 )
-from motherload_projet.workflow.run_unpaywall_batch import run_unpaywall_csv_batch
+from motherload_projet.data_mining.recuperation_article.run_unpaywall_batch import (
+    run_unpaywall_csv_batch,
+)
 
 try:  # optionnel
     from motherload_projet.ecosysteme_visualisation.watcher import start_watchdog
@@ -285,8 +287,8 @@ def run_app() -> None:
 
     def choose_files() -> None:
         files = filedialog.askopenfilenames(
-            title="Choisir des PDFs",
-            filetypes=[("PDF", "*.pdf")],
+            title="Choisir des PDFs ou EPUBs",
+            filetypes=[("PDF/EPUB", "*.pdf *.epub"), ("PDF", "*.pdf"), ("EPUB", "*.epub")],
         )
         selected = _filter_files(files)
         if selected:
@@ -326,7 +328,7 @@ def run_app() -> None:
 
     buttons_row = ttk.Frame(ingest_tab)
     buttons_row.pack(fill="x", pady=(0, 8))
-    ttk.Button(buttons_row, text="Choisir PDF(s)", command=choose_files).pack(
+    ttk.Button(buttons_row, text="Choisir PDF/EPUB", command=choose_files).pack(
         side="left"
     )
     ttk.Button(buttons_row, text="Nouvelle collection", command=create_collection).pack(
@@ -336,7 +338,7 @@ def run_app() -> None:
     if _DND_AVAILABLE:
         drop_label = ttk.Label(
             ingest_tab,
-            text="Glisser PDF ou CSV ici",
+            text="Glisser PDF/EPUB ou CSV ici",
             relief="ridge",
             padding=18,
             anchor="center",
@@ -362,9 +364,13 @@ def run_app() -> None:
                 else:
                     append_log("CSV detecte mais recherche web indisponible.")
                 return
-            pdfs = [item for item in selected if Path(item).suffix.lower() == ".pdf"]
-            if pdfs:
-                handle_files(pdfs)
+            docs = [
+                item
+                for item in selected
+                if Path(item).suffix.lower() in {".pdf", ".epub"}
+            ]
+            if docs:
+                handle_files(docs)
 
         drop_label.drop_target_register(DND_FILES)
         drop_label.dnd_bind("<<Drop>>", on_drop)
@@ -925,29 +931,72 @@ def run_app() -> None:
         unknown_count_var.set(str(count_indexed_unknown()))
         missing_count_var.set(str(count_missing_pdfs()))
         queue_count_var.set(str(count_to_be_downloaded()))
+        last_refresh_var.set(datetime.now().strftime("Mis a jour: %H:%M:%S"))
 
-    ttk.Label(dashboard_tab, text="Zotero items").grid(row=0, column=0, sticky="w")
-    ttk.Label(dashboard_tab, textvariable=zotero_items_var).grid(row=0, column=1, sticky="w")
-    ttk.Label(dashboard_tab, text="Zotero PDFs").grid(row=1, column=0, sticky="w")
-    ttk.Label(dashboard_tab, textvariable=zotero_pdfs_var).grid(row=1, column=1, sticky="w")
-    ttk.Label(dashboard_tab, text="PDFs locaux").grid(row=2, column=0, sticky="w")
-    ttk.Label(dashboard_tab, textvariable=local_pdfs_var).grid(row=2, column=1, sticky="w")
-    ttk.Label(dashboard_tab, text="References bibliographiques").grid(row=3, column=0, sticky="w")
-    ttk.Label(dashboard_tab, textvariable=references_var).grid(row=3, column=1, sticky="w")
-    ttk.Label(dashboard_tab, text="Articles indexes (PDF)").grid(row=4, column=0, sticky="w")
-    ttk.Label(dashboard_tab, textvariable=indexed_count_var).grid(row=4, column=1, sticky="w")
-    ttk.Label(dashboard_tab, text="Livres indexes (PDF)").grid(row=5, column=0, sticky="w")
-    ttk.Label(dashboard_tab, textvariable=books_count_var).grid(row=5, column=1, sticky="w")
-    ttk.Label(dashboard_tab, text="Inconnu (PDF)").grid(row=6, column=0, sticky="w")
-    ttk.Label(dashboard_tab, textvariable=unknown_count_var).grid(row=6, column=1, sticky="w")
-    ttk.Label(dashboard_tab, text="A telecharger (master)").grid(row=7, column=0, sticky="w")
-    ttk.Label(dashboard_tab, textvariable=missing_count_var).grid(row=7, column=1, sticky="w")
-    ttk.Label(dashboard_tab, text="Queue actuelle").grid(row=8, column=0, sticky="w")
-    ttk.Label(dashboard_tab, textvariable=queue_count_var).grid(row=8, column=1, sticky="w")
+    dash_title_font = ("Avenir Next", 12, "bold")
+    dash_value_font = ("Avenir Next", 22, "bold")
+    dash_meta_font = ("Avenir Next", 10)
 
-    ttk.Label(dashboard_tab, text="Progression projet").grid(row=9, column=0, sticky="w")
-    progress_bar.grid(row=9, column=1, sticky="w")
-    ttk.Label(dashboard_tab, textvariable=progress_var).grid(row=9, column=2, sticky="w")
+    last_refresh_var = tk.StringVar(value="")
+
+    header = tk.Frame(dashboard_tab)
+    header.pack(fill="x", pady=(0, 8))
+    tk.Label(header, text="Dashboard", font=dash_title_font).pack(side="left")
+    tk.Label(header, textvariable=last_refresh_var, font=dash_meta_font).pack(
+        side="right"
+    )
+
+    stats_grid = tk.Frame(dashboard_tab)
+    stats_grid.pack(fill="both", expand=True)
+    for col in range(3):
+        stats_grid.columnconfigure(col, weight=1, uniform="card")
+
+    def _card(parent: tk.Widget, title: str, var: tk.StringVar, color: str) -> tk.Frame:
+        frame = tk.Frame(parent, bg=color, padx=12, pady=10)
+        tk.Label(
+            frame,
+            text=title,
+            bg=color,
+            fg="white",
+            font=dash_meta_font,
+            anchor="w",
+        ).pack(fill="x")
+        tk.Label(
+            frame,
+            textvariable=var,
+            bg=color,
+            fg="white",
+            font=dash_value_font,
+            anchor="w",
+        ).pack(fill="x")
+        return frame
+
+    cards = [
+        ("PDFs locaux", local_pdfs_var, "#2563EB"),
+        ("References bibliographiques", references_var, "#16A34A"),
+        ("A telecharger (master)", missing_count_var, "#F59E0B"),
+        ("Articles indexes (PDF)", indexed_count_var, "#0EA5E9"),
+        ("Livres indexes (PDF)", books_count_var, "#22C55E"),
+        ("Inconnu (PDF)", unknown_count_var, "#64748B"),
+        ("Zotero items", zotero_items_var, "#06B6D4"),
+        ("Zotero PDFs", zotero_pdfs_var, "#14B8A6"),
+        ("Queue actuelle", queue_count_var, "#F97316"),
+    ]
+
+    for index, (title, var, color) in enumerate(cards):
+        row, col = divmod(index, 3)
+        card = _card(stats_grid, title, var, color)
+        card.grid(row=row, column=col, padx=8, pady=8, sticky="nsew")
+
+    progress_wrap = tk.Frame(dashboard_tab)
+    progress_wrap.pack(fill="x", pady=(6, 8))
+    tk.Label(progress_wrap, text="Progression projet", font=dash_meta_font).pack(
+        side="left"
+    )
+    progress_bar.pack(side="left", padx=(8, 6))
+    tk.Label(progress_wrap, textvariable=progress_var, font=dash_meta_font).pack(
+        side="left"
+    )
 
     scan_running = {"active": False}
 
@@ -977,11 +1026,13 @@ def run_app() -> None:
         thread = threading.Thread(target=_worker, daemon=True)
         thread.start()
 
-    ttk.Button(dashboard_tab, text="Rafraichir", command=refresh_counts).grid(
-        row=10, column=0, pady=(10, 0), sticky="w"
+    actions = ttk.Frame(dashboard_tab)
+    actions.pack(fill="x", pady=(6, 0))
+    ttk.Button(actions, text="Rafraichir", command=refresh_counts).pack(
+        side="left"
     )
-    ttk.Button(dashboard_tab, text="Analyser PDFs", command=scan_library).grid(
-        row=10, column=1, pady=(10, 0), sticky="w"
+    ttk.Button(actions, text="Analyser PDFs", command=scan_library).pack(
+        side="left", padx=(8, 0)
     )
 
     
@@ -1042,33 +1093,35 @@ def run_app() -> None:
         _show_details(node_id)
 
     def _build_schema_text(index: dict) -> str:
-        nodes = index.get("nodes", [])
-        modules = [n for n in nodes if n.get("type") == "module"]
-        funcs = [n for n in nodes if n.get("type") == "function"]
-        func_map: dict[str, list[dict]] = {}
-        for fn in funcs:
-            module = fn.get("module", "")
-            func_map.setdefault(module, []).append(fn)
-        modules = sorted(modules, key=lambda item: item.get("name", ""))
-        lines = ["motherload_projet"]
-        for idx, mod in enumerate(modules):
-            is_last = idx == len(modules) - 1
-            mod_prefix = "└─" if is_last else "├─"
-            mod_name = mod.get("name", "")
-            mod_path = mod_name.replace(".", "/") + ".py" if mod_name else ""
-            lines.append(f"{mod_prefix} {mod_path}")
-            main = mod.get("main_functions") or []
-            candidates = func_map.get(mod.get("name", ""), [])
-            if main:
-                candidates = [c for c in candidates if c.get("name") in main]
-            if not candidates:
-                candidates = func_map.get(mod.get("name", ""), [])[:3]
-            for fidx, fn in enumerate(candidates):
-                f_last = fidx == len(candidates) - 1
-                branch = "    " if is_last else "│   "
-                func_prefix = "└─" if f_last else "├─"
-                summary = fn.get("summary", "")
-                lines.append(f"{branch}{func_prefix} {fn.get('name', '')} : {summary}")
+        root = repo_root / "motherload_projet"
+        exclude = {".git", ".venv", "__pycache__", ".DS_Store"}
+
+        lines = [root.name]
+
+        def _walk(path: Path, prefix: str, depth: int, max_depth: int) -> None:
+            if depth > max_depth:
+                return
+            entries = []
+            try:
+                entries = list(path.iterdir())
+            except OSError:
+                return
+            filtered = [
+                entry
+                for entry in entries
+                if entry.name not in exclude and not entry.name.startswith(".DS_")
+            ]
+            filtered.sort(key=lambda p: (not p.is_dir(), p.name.lower()))
+            for idx, entry in enumerate(filtered):
+                is_last = idx == len(filtered) - 1
+                connector = "└─" if is_last else "├─"
+                suffix = "/" if entry.is_dir() else ""
+                lines.append(f"{prefix}{connector} {entry.name}{suffix}")
+                if entry.is_dir():
+                    new_prefix = prefix + ("    " if is_last else "│   ")
+                    _walk(entry, new_prefix, depth + 1, max_depth)
+
+        _walk(root, "", 1, 3)
         return "\n".join(lines)
 
     def _render_schema_text(index: dict) -> None:

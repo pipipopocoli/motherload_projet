@@ -43,3 +43,4 @@ Phase 2.6: progress live + ETA glissante + diagnostics OA/HTTP.
 Phase 2.7: proxy UQAR (export/open/ingest) + liens EZproxy + import manuel PDFs.
 Phase 2.x: ingestion manuelle PDF (UI Tkinter + CLI one) + dedupe hash + update master_catalog.
 Phase 2.y: ecosysteme visuel (organigramme modules/fonctions + notes + auto update watchdog + deps).
+Phase 2.z: reorganisation dossiers (data_mining, local_pdf_update, rapport_activite, maintenance_manager, connecteurs).

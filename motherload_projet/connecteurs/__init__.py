@@ -1,0 +1,1 @@
+"""Connecteurs externes (stubs)."""

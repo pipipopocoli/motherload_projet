@@ -1,5 +1,7 @@
 # motherload_projet
 
+Note: quand je parle de "momo", je parle de ce projet (motherload_projet).
+
 ## Installation
 
 ```bash

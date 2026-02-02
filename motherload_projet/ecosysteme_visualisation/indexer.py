@@ -105,6 +105,18 @@ def _extract_output(text: str) -> str:
 def _infer_module_outputs(module_name: str, doc: str) -> str:
     """Devine les sorties d un module."""
     name = module_name.lower()
+    if "maintenance_manager" in name:
+        return "Maintenance et updates"
+    if "connecteurs" in name:
+        return "Connecteurs externes"
+    if "note_systeme" in name:
+        return "Notes et bugs"
+    if "data_mining" in name:
+        return "Extraction et telechargements"
+    if "recuperation_oa" in name:
+        return "Liens Open Access"
+    if "recuperation_article" in name:
+        return "Batchs OA et proxy"
     if "download" in name:
         return "PDFs telecharges"
     if "report" in name:

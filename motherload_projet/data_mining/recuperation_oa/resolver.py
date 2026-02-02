@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from motherload_projet.config import get_unpaywall_email
-from motherload_projet.oa.unpaywall_client import (
+from motherload_projet.data_mining.recuperation_oa.unpaywall_client import (
     UnpaywallError,
     extract_pdf_candidates,
     fetch_unpaywall_record,

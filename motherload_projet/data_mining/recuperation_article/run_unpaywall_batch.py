@@ -11,10 +11,10 @@ from typing import Any
 
 import pandas as pd
 
-from motherload_projet.download.fetcher import fetch_url
-from motherload_projet.download.html_harvest import extract_pdf_urls_from_html
-from motherload_projet.download.pdf_validate import validate_pdf_bytes
-from motherload_projet.download.store import store_pdf_bytes
+from motherload_projet.data_mining.fetcher import fetch_url
+from motherload_projet.data_mining.html_harvest import extract_pdf_urls_from_html
+from motherload_projet.data_mining.pdf_validate import validate_pdf_bytes
+from motherload_projet.data_mining.store import store_pdf_bytes
 from motherload_projet.library.paths import (
     archives_root,
     bibliotheque_root,
@@ -24,7 +24,9 @@ from motherload_projet.library.paths import (
     reports_root,
 )
 from motherload_projet.library.master_catalog import sync_catalog
-from motherload_projet.oa.resolver import resolve_pdf_urls_from_unpaywall
+from motherload_projet.data_mining.recuperation_oa.resolver import (
+    resolve_pdf_urls_from_unpaywall,
+)
 from motherload_projet.ui.collections_menu import choose_collection
 
 DEFAULT_MIN_PDF_KB = 100
