@@ -733,6 +733,7 @@ def run_unpaywall_csv_batch(
     limit: int | None = None,
     progress_every: int = DEFAULT_PROGRESS_EVERY,
     verbose_progress: bool = False,
+    progress_cb: Callable[[dict[str, Any]], None] | None = None,
 ) -> int:
     """Execute un batch Unpaywall CSV."""
     csv_path = Path(csv_path).expanduser()
@@ -805,6 +806,8 @@ def run_unpaywall_csv_batch(
     total = len(df)
     if total:
         print(f"Lignes a traiter: {total}")
+    if progress_cb:
+        progress_cb({"stage": "start", "total": total})
 
     processed = 0
     ok_count = 0
@@ -897,11 +900,26 @@ def run_unpaywall_csv_batch(
                     _progress_line(offset, total, ok_count, fail_count, durations),
                     progress_len,
                 )
+            if progress_cb:
+                progress_cb(
+                    {
+                        "stage": "item",
+                        "done": processed,
+                        "total": total,
+                        "doi": doi,
+                        "status": status,
+                        "reason_code": reason_code,
+                        "ok": ok_count,
+                        "fail": fail_count,
+                    }
+                )
     except KeyboardInterrupt:
         cancelled = True
         if not verbose_progress and processed:
             print("", flush=True)
         print("Annulé", flush=True)
+        if progress_cb:
+            progress_cb({"stage": "cancelled", "done": processed, "total": total})
 
     if cancelled:
         _mark_unprocessed_as_error(df)
@@ -925,6 +943,18 @@ def run_unpaywall_csv_batch(
     print(f"A telecharger: {to_be_downloaded_path}")
     print(f"Rapport: {report_path}")
     print(f"Catalog diff: {catalog_result['diff_path']}")
+    if progress_cb:
+        progress_cb(
+            {
+                "stage": "done",
+                "done": processed,
+                "total": total,
+                "bibliotheque_path": str(bibliotheque_path),
+                "to_be_downloaded_path": str(to_be_downloaded_path),
+                "report_path": str(report_path),
+                "catalog_diff": str(catalog_result["diff_path"]),
+            }
+        )
     return 0
 
 

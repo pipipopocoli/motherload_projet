@@ -11,11 +11,13 @@ from typing import Any
 
 import pandas as pd
 
+from motherload_projet.config import get_manual_import_subdir
 from motherload_projet.library.paths import (
     bibliotheque_root,
     collections_root,
     ensure_dir,
     library_root,
+    reports_root,
 )
 from motherload_projet.ui.collections_menu import choose_collection
 from motherload_projet.workflow.run_unpaywall_batch import _write_batch_outputs
@@ -39,6 +41,15 @@ def _unique_path(base: Path) -> Path:
         if not candidate.exists():
             return candidate
         counter += 1
+
+
+def _write_ingest_report(lines: list[str]) -> Path:
+    """Ecrit le rapport ingest."""
+    reports_dir = ensure_dir(reports_root())
+    tag = _timestamp_tag()
+    report_path = _unique_path(reports_dir / f"ingest_report_{tag}.txt")
+    report_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return report_path
 
 
 def _clean_text(value: Any) -> str:
@@ -252,13 +263,14 @@ def resolve_collection_for_ingest(
 
 
 def manual_import_dir_for_collection(collection: Path) -> Path:
-    """Retourne le dossier manual_import."""
+    """Retourne le dossier d import manuel."""
     pdfs_root = ensure_dir(library_root() / "pdfs")
     try:
         rel = collection.relative_to(collections_root())
     except ValueError:
         rel = Path(collection.name)
-    return ensure_dir(pdfs_root / rel / "manual_import")
+    manual_subdir = get_manual_import_subdir()
+    return ensure_dir(pdfs_root / rel / manual_subdir)
 
 
 def ingest_manual_pdfs(
@@ -270,8 +282,16 @@ def ingest_manual_pdfs(
     """Ingere les PDFs manuels."""
     proxy_queue_csv_path = Path(proxy_queue_csv_path).expanduser()
     run_csv_path = Path(run_csv_path).expanduser()
-    proxy_queue_df = pd.read_csv(proxy_queue_csv_path) if proxy_queue_csv_path else pd.DataFrame()
+    proxy_queue_df = (
+        pd.read_csv(proxy_queue_csv_path) if proxy_queue_csv_path else pd.DataFrame()
+    )
     run_df = pd.read_csv(run_csv_path)
+
+    proxy_queue_df = proxy_queue_df.copy()
+    for name in ["status", "reason_code", "pdf_path", "doi", "title", "year"]:
+        if name not in proxy_queue_df.columns:
+            proxy_queue_df[name] = ""
+        proxy_queue_df[name] = proxy_queue_df[name].fillna("").astype(str)
 
     run_df = run_df.copy()
     if "doi" not in run_df.columns:
@@ -323,10 +343,18 @@ def ingest_manual_pdfs(
                 continue
 
             run_index = match["index"]
-            doi_value = doi or _clean_text(run_df.at[run_index, "doi"])
+            doi_value = _normalize_doi(doi or run_df.at[run_index, "doi"])
             if not doi_value:
                 unmatched.append(path.name)
                 continue
+
+            queue_index = None
+            if not proxy_queue_df.empty:
+                queue_index = _match_by_doi(proxy_queue_df, doi_value)
+                if queue_index is None and fallback_title_year:
+                    queue_index = _match_by_title_year(
+                        proxy_queue_df, fallback_title_year[0], fallback_title_year[1]
+                    )
 
             target_dir = manual_import_dir.parent
             target_path = target_dir / f"doi_{sanitize_doi_for_filename(doi_value)}.pdf"
@@ -340,14 +368,23 @@ def ingest_manual_pdfs(
             moved_paths.append(target_path)
             matched += 1
             run_df.at[run_index, "status"] = "downloaded"
-            run_df.at[run_index, "reason_code"] = "OK"
-            if not _clean_text(run_df.at[run_index, "pdf_path"]):
-                run_df.at[run_index, "pdf_path"] = str(target_path)
+            run_df.at[run_index, "reason_code"] = "PROXY_MANUAL"
+            run_df.at[run_index, "pdf_path"] = str(target_path)
             run_df.at[run_index, "final_url"] = "uqar_proxy_manual"
             if "tried_methods" in run_df.columns:
                 run_df.at[run_index, "tried_methods"] = "uqar_proxy_manual"
+            if queue_index is not None:
+                proxy_queue_df.at[queue_index, "status"] = "downloaded"
+                proxy_queue_df.at[queue_index, "reason_code"] = "PROXY_MANUAL"
+                proxy_queue_df.at[queue_index, "pdf_path"] = str(target_path)
     except KeyboardInterrupt:
         errors.append("Annule par l utilisateur.")
+
+    if not proxy_queue_df.empty:
+        try:
+            proxy_queue_df.to_csv(proxy_queue_csv_path, index=False)
+        except Exception as exc:
+            errors.append(f"proxy_queue update: {exc}")
 
     duration_sec = time.monotonic() - start_time
     avg_rate = (processed / duration_sec) if duration_sec > 0 else 0.0
@@ -361,30 +398,37 @@ def ingest_manual_pdfs(
         run_df, "doi", "Rapport UQAR proxy ingest", duration_sec, avg_rate
     )
 
-    extra_lines = [
-        "UQAR proxy ingest",
+    ingest_lines = [
+        "UQAR proxy ingest report",
         f"Proxy queue: {proxy_queue_csv_path}",
         f"Run source: {run_csv_path}",
         f"Collection: {collection}",
+        f"Manual import: {manual_import_dir}",
         f"PDFs trouves: {len(pdf_files)}",
-        f"Matches: {matched}",
-        f"Unmatched: {len(unmatched)}",
+        f"Ingeres: {matched}",
+        f"Inconnus: {len(unmatched)}",
         f"Erreurs: {len(errors)}",
-        "Unmatched PDFs:",
+        f"Duree: {duration_sec:.1f}s",
     ]
+    if moved_paths:
+        ingest_lines.append("PDFs ingeres:")
+        for path in moved_paths:
+            ingest_lines.append(f"- {path}")
+    ingest_lines.append("PDFs inconnus:")
     if unmatched:
         for name in unmatched:
-            extra_lines.append(f"- {name}")
+            ingest_lines.append(f"- {name}")
     else:
-        extra_lines.append("- aucun")
+        ingest_lines.append("- aucun")
     if errors:
-        extra_lines.append("Erreurs:")
+        ingest_lines.append("Erreurs:")
         for line in errors:
-            extra_lines.append(f"- {line}")
+            ingest_lines.append(f"- {line}")
 
+    ingest_report_path = _write_ingest_report(ingest_lines)
     report_path.write_text(
         report_path.read_text(encoding="utf-8")
-        + "\n".join(extra_lines)
+        + "\n".join(ingest_lines)
         + "\n",
         encoding="utf-8",
     )
@@ -398,6 +442,7 @@ def ingest_manual_pdfs(
         "bibliotheque_path": bibliotheque_path,
         "to_be_downloaded_path": to_be_downloaded_path,
         "report_path": report_path,
+        "ingest_report_path": ingest_report_path,
         "catalog_diff": catalog_result["diff_path"],
         "moved_paths": moved_paths,
     }

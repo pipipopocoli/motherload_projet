@@ -6,20 +6,15 @@ from collections import Counter
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote_plus
 import webbrowser
+from urllib.parse import quote_plus
 
 import pandas as pd
-import requests
 
+from motherload_projet.config import get_manual_import_subdir, get_uqar_ezproxy_prefix
 from motherload_projet.library.paths import bibliotheque_root, ensure_dir, reports_root
 
-DEFAULT_DISCOVERY_BASE_URL = "https://uqar-on-worldcat-org.ezproxy.uqar.ca/discovery"
-DEFAULT_NOTES = (
-    "Ouvrir le lien, chercher DOI ou titre, "
-    "cliquer 'Acces en ligne', "
-    "telecharger le PDF, deposer dans manual_import/."
-)
+DISCOVERY_BASE_URL = "https://uqar-on-worldcat-org.ezproxy.uqar.ca/discovery"
 
 
 def _timestamp_tag() -> str:
@@ -78,29 +73,57 @@ def _clean_text(value: Any) -> str:
     return text
 
 
-def _build_search_url(base_url: str, query_text: str) -> str:
+def _default_notes(manual_subdir: str) -> str:
+    """Retourne les notes par defaut."""
+    return (
+        "Ouvrir le lien, chercher DOI ou titre, "
+        "cliquer 'Acces en ligne', "
+        f"telecharger le PDF, deposer dans {manual_subdir}/."
+    )
+
+
+def _build_search_url(query_text: str) -> str:
     """Construit un lien de recherche."""
-    base = base_url.rstrip("/")
     query = quote_plus(query_text)
-    return f"{base}/search?queryString={query}"
+    return f"{DISCOVERY_BASE_URL}/search?queryString={query}"
 
 
-def _check_search_available(base_url: str, query_text: str) -> bool:
-    """Teste si le /search repond."""
-    if not query_text:
-        return False
-    url = _build_search_url(base_url, query_text)
-    try:
-        response = requests.get(url, timeout=5)
-    except requests.RequestException:
-        return False
-    return response.status_code == 200
+def _build_proxy_search_url(prefix: str | None, query_text: str) -> str:
+    """Construit un lien EZproxy."""
+    if not prefix or not query_text:
+        return ""
+    return f"{prefix}{_build_search_url(query_text)}"
 
 
-def export_proxy_queue(
-    source_csv: Path | str,
-    discovery_base_url: str = DEFAULT_DISCOVERY_BASE_URL,
-) -> dict[str, Path | bool]:
+def _build_query_text(doi: str, title: str, year: str) -> str:
+    """Construit le texte de recherche."""
+    if doi:
+        return doi
+    parts = [title, year]
+    return " ".join(part for part in parts if part).strip()
+
+
+def _ensure_status_column(df: pd.DataFrame) -> None:
+    """Garantit la colonne status."""
+    if "status" not in df.columns:
+        df["status"] = "pending"
+        return
+    df["status"] = df["status"].fillna("").astype(str)
+    df["status"] = df["status"].where(df["status"].str.strip() != "", "pending")
+
+
+def _resolve_proxy_url_column(df: pd.DataFrame) -> str:
+    """Retourne la colonne URL a utiliser."""
+    if "proxy_search_url" in df.columns:
+        return "proxy_search_url"
+    if "uqar_discovery_url" in df.columns:
+        df["proxy_search_url"] = df["uqar_discovery_url"].fillna("")
+        return "proxy_search_url"
+    df["proxy_search_url"] = ""
+    return "proxy_search_url"
+
+
+def export_proxy_queue(source_csv: Path | str) -> dict[str, Path | bool | str]:
     """Exporte une proxy_queue."""
     source_csv = Path(source_csv).expanduser()
     df = pd.read_csv(source_csv)
@@ -120,21 +143,23 @@ def export_proxy_queue(
             df[name] = ""
         df[name] = df[name].apply(_clean_text)
 
-    df["query_text"] = df["doi"].where(df["doi"] != "", df["title"]).apply(_clean_text)
-    sample_query = ""
-    for value in df["query_text"]:
-        if value:
-            sample_query = value
-            break
-    search_ok = _check_search_available(discovery_base_url, sample_query)
+    df["query_text"] = df.apply(
+        lambda row: _build_query_text(
+            _clean_text(row.get("doi", "")),
+            _clean_text(row.get("title", "")),
+            _clean_text(row.get("year", "")),
+        ),
+        axis=1,
+    )
 
-    def _resolve_url(query_text: str) -> str:
-        if search_ok and query_text:
-            return _build_search_url(discovery_base_url, query_text)
-        return discovery_base_url
-
-    df["uqar_discovery_url"] = df["query_text"].apply(_resolve_url)
-    df["notes"] = DEFAULT_NOTES
+    prefix = get_uqar_ezproxy_prefix()
+    links_enabled = bool(prefix)
+    df["proxy_search_url"] = df["query_text"].apply(
+        lambda text: _build_proxy_search_url(prefix, text)
+    )
+    _ensure_status_column(df)
+    manual_subdir = get_manual_import_subdir()
+    df["notes"] = _default_notes(manual_subdir)
 
     tag = _extract_tag(source_csv)
     bib_root = ensure_dir(bibliotheque_root())
@@ -152,17 +177,19 @@ def export_proxy_queue(
         "reason_code",
         "collection",
         "query_text",
-        "uqar_discovery_url",
+        "proxy_search_url",
+        "status",
         "notes",
     ]
     df[columns].to_csv(proxy_queue_path, index=False)
 
     reason_counts = Counter([reason for reason in df["reason_code"] if reason])
+    link_state = "OK" if links_enabled else "MANQUANT"
     report_lines = [
         "Proxy queue report",
         f"Source: {source_csv}",
         f"Total items: {len(df)}",
-        f"Search link: {'OK' if search_ok else 'base_url only'}",
+        f"EZproxy prefix: {link_state}",
         "Reasons:",
     ]
     if reason_counts:
@@ -173,19 +200,30 @@ def export_proxy_queue(
     report_lines.extend(
         [
             "Manual import:",
-            "- Deposer les PDFs dans: ~/Desktop/grand_librairy/pdfs/<collection>/manual_import/",
+            f"- Deposer les PDFs dans: ~/Desktop/grand_librairy/pdfs/<collection>/{manual_subdir}/",
             "- Ingest: python -m motherload_projet.cli --uqar-proxy-ingest",
+            "- Ouvrir un lien: python -m motherload_projet.cli --uqar-proxy-open",
             "Fichiers:",
             f"- Proxy queue: {proxy_queue_path}",
             f"- Rapport: {report_path}",
         ]
     )
+    if not links_enabled:
+        report_lines.append(
+            "ERREUR: UQAR_EZPROXY_PREFIX manquant (liens non generes)."
+        )
     report_path.write_text("\n".join(report_lines) + "\n", encoding="utf-8")
 
     return {
         "proxy_queue_path": proxy_queue_path,
         "report_path": report_path,
-        "search_ok": search_ok,
+        "links_enabled": links_enabled,
+        "message": (
+            "ERREUR: UQAR_EZPROXY_PREFIX manquant (voir .env.example). "
+            "Liens non generes."
+            if not links_enabled
+            else ""
+        ),
     }
 
 
@@ -203,45 +241,38 @@ def open_proxy_queue(queue_path: Path | str) -> int:
         return 0
 
     df = df.copy()
-    if "uqar_discovery_url" not in df.columns:
-        df["uqar_discovery_url"] = DEFAULT_DISCOVERY_BASE_URL
+    _ensure_status_column(df)
+    url_column = _resolve_proxy_url_column(df)
     if "doi" not in df.columns:
         df["doi"] = ""
     if "title" not in df.columns:
         df["title"] = ""
 
-    total = len(df)
-    display_count = min(total, 20)
-    print(f"Proxy queue: {queue_path}")
-    for index in range(display_count):
-        row = df.iloc[index]
-        doi = _clean_text(row.get("doi", ""))
-        title = _clean_text(row.get("title", ""))
-        label = doi or title or "<sans titre>"
-        print(f"{index + 1}) {label}")
-    if total > display_count:
-        print(f"... ({total - display_count} autres)")
-
-    while True:
-        try:
-            choice = input("Choix (numero, q=quit): ").strip()
-        except KeyboardInterrupt:
-            print("Annulé")
-            return 0
-        if not choice:
-            continue
-        lowered = choice.lower()
-        if lowered == "q":
-            return 0
-        if not choice.isdigit():
-            print("Choix invalide.")
-            continue
-        index = int(choice) - 1
-        if index < 0 or index >= total:
-            print("Choix invalide.")
-            continue
-        row = df.iloc[index]
-        url = _clean_text(row.get("uqar_discovery_url", "")) or DEFAULT_DISCOVERY_BASE_URL
-        print(f"Ouverture: {url}")
-        webbrowser.open(url)
+    statuses = df["status"].fillna("").astype(str).str.strip().str.lower()
+    remaining_mask = ~statuses.isin({"open", "downloaded"})
+    if not remaining_mask.any():
+        print("Aucun lien restant dans la proxy_queue.")
         return 0
+
+    index = None
+    for idx in df.index[remaining_mask]:
+        candidate_url = _clean_text(df.at[idx, url_column])
+        if candidate_url:
+            index = idx
+            break
+    if index is None:
+        print("ERREUR: proxy_search_url manquant (verifiez UQAR_EZPROXY_PREFIX).")
+        return 2
+
+    row = df.loc[index]
+    url = _clean_text(row.get(url_column, ""))
+
+    doi = _clean_text(row.get("doi", ""))
+    title = _clean_text(row.get("title", ""))
+    label = doi or title or "<sans titre>"
+    print(f"Ouverture: {label}")
+    print(f"URL: {url}")
+    webbrowser.open(url)
+    df.at[index, "status"] = "open"
+    df.to_csv(queue_path, index=False)
+    return 0

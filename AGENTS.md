@@ -18,6 +18,7 @@ Construire un outil Python pour:
   - ~/Desktop/grand_librairy/bibliotheque/
   - ~/Desktop/grand_librairy/reports/
  - Ne jamais demander/stocker d'identifiants (proxy/EZproxy) ni tenter de bypass paywall.
+ - Le fallback proxy ne doit jamais contenir de login/mot de passe: authentification via navigateur uniquement.
 
 ## Philosophie de dev
 - Changements minimaux: ne pas refactoriser ce qui marche.

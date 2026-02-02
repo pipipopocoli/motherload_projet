@@ -10,6 +10,39 @@ import pandas as pd
 
 from motherload_projet.library.paths import bibliotheque_root, ensure_dir, reports_root
 
+DEFAULT_MASTER_COLUMNS = [
+    "doi",
+    "isbn",
+    "title",
+    "year",
+    "type",
+    "authors",
+    "keywords",
+    "status",
+    "reason_code",
+    "pdf_path",
+    "final_url",
+    "is_oa",
+    "oa_status",
+    "url_for_pdf",
+    "last_http_status",
+    "tried_methods",
+    "collection",
+    "last_seen_run",
+    "file_hash",
+    "source",
+    "added_at",
+]
+
+MANUAL_COLUMNS = ["file_hash", "source", "added_at", "collection", "pdf_path"]
+
+
+def _ensure_columns(df: pd.DataFrame, columns: list[str]) -> None:
+    """Ajoute les colonnes manquantes."""
+    for name in columns:
+        if name not in df.columns:
+            df[name] = ""
+
 
 def _unique_path(base: Path) -> Path:
     """Retourne un chemin unique."""
@@ -167,6 +200,7 @@ def sync_catalog(run_bibliotheque_csv: Path | str) -> dict[str, Any]:
     master_df = pd.DataFrame(master_records)
     preferred = [
         "doi",
+        "isbn",
         "title",
         "year",
         "type",
@@ -210,3 +244,198 @@ def sync_catalog(run_bibliotheque_csv: Path | str) -> dict[str, Any]:
         "updated_items": updated_items,
         "total": len(master_df),
     }
+
+
+def load_master_catalog(path: Path | str) -> pd.DataFrame:
+    """Charge le master catalog."""
+    master_path = Path(path).expanduser()
+    if master_path.exists():
+        df = pd.read_csv(master_path)
+    else:
+        df = pd.DataFrame(columns=DEFAULT_MASTER_COLUMNS)
+    _ensure_columns(df, MANUAL_COLUMNS)
+    return df
+
+
+def upsert_manual_pdf_entry(
+    df_master: pd.DataFrame,
+    entry_dict: dict[str, Any],
+    run_tag: str | None,
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """Met a jour une entree manuelle."""
+    df_master = df_master.copy()
+    _ensure_columns(df_master, MANUAL_COLUMNS)
+
+    file_hash = str(entry_dict.get("file_hash", "")).strip()
+    if not file_hash:
+        return df_master, {"action": "error", "message": "MISSING_HASH"}
+
+    hashes = df_master["file_hash"].fillna("").astype(str).str.strip()
+    matches = hashes[hashes == file_hash].index.tolist()
+    if matches:
+        index = matches[0]
+        updates = {
+            "file_hash": file_hash,
+            "source": entry_dict.get("source") or "manual",
+            "added_at": entry_dict.get("added_at", ""),
+            "collection": entry_dict.get("collection", ""),
+            "pdf_path": entry_dict.get("pdf_path", ""),
+        }
+        for name, value in updates.items():
+            if value is not None and str(value).strip():
+                df_master.at[index, name] = value
+        if "type" in entry_dict and "type" in df_master.columns:
+            value = str(entry_dict.get("type", "")).strip()
+            if value and _should_update_type(df_master.at[index, "type"]):
+                df_master.at[index, "type"] = value
+        if "isbn" in entry_dict and "isbn" in df_master.columns:
+            value = str(entry_dict.get("isbn", "")).strip()
+            if value and not str(df_master.at[index, "isbn"]).strip():
+                df_master.at[index, "isbn"] = value
+        if "title" in entry_dict and "title" in df_master.columns:
+            value = str(entry_dict.get("title", "")).strip()
+            if value and not str(df_master.at[index, "title"]).strip():
+                df_master.at[index, "title"] = value
+        if "authors" in entry_dict and "authors" in df_master.columns:
+            value = str(entry_dict.get("authors", "")).strip()
+            if value and not str(df_master.at[index, "authors"]).strip():
+                df_master.at[index, "authors"] = value
+        if "keywords" in entry_dict and "keywords" in df_master.columns:
+            value = str(entry_dict.get("keywords", "")).strip()
+            if value and not str(df_master.at[index, "keywords"]).strip():
+                df_master.at[index, "keywords"] = value
+        if "year" in entry_dict and "year" in df_master.columns:
+            value = str(entry_dict.get("year", "")).strip()
+            if value and not str(df_master.at[index, "year"]).strip():
+                df_master.at[index, "year"] = value
+        if run_tag and "last_seen_run" in df_master.columns:
+            df_master.at[index, "last_seen_run"] = run_tag
+        return df_master, {"action": "updated", "index": int(index)}
+
+    for name in entry_dict:
+        if name not in df_master.columns:
+            df_master[name] = ""
+    new_record = {name: "" for name in df_master.columns}
+    for name, value in entry_dict.items():
+        new_record[name] = value
+    new_record["source"] = entry_dict.get("source") or "manual"
+    if run_tag and "last_seen_run" in df_master.columns:
+        new_record["last_seen_run"] = run_tag
+
+    df_master = pd.concat([df_master, pd.DataFrame([new_record])], ignore_index=True)
+    return df_master, {"action": "created", "index": len(df_master) - 1}
+
+
+def _should_update_type(current: Any) -> bool:
+    """Indique si le type peut etre mis a jour."""
+    text = str(current or "").strip().lower()
+    return text in {"", "unknown", "inconnu"}
+
+
+def upsert_scan_pdf_entry(
+    df_master: pd.DataFrame,
+    entry_dict: dict[str, Any],
+    run_tag: str | None,
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """Met a jour une entree scannee."""
+    df_master = df_master.copy()
+    _ensure_columns(df_master, MANUAL_COLUMNS)
+
+    file_hash = str(entry_dict.get("file_hash", "")).strip()
+    pdf_path = str(entry_dict.get("pdf_path", "")).strip()
+    if not file_hash and not pdf_path:
+        return df_master, {"action": "error", "message": "MISSING_KEY"}
+
+    match_index = None
+    if file_hash and "file_hash" in df_master.columns:
+        hashes = df_master["file_hash"].fillna("").astype(str).str.strip()
+        matches = hashes[hashes == file_hash].index.tolist()
+        if matches:
+            match_index = matches[0]
+    if match_index is None and pdf_path and "pdf_path" in df_master.columns:
+        paths = df_master["pdf_path"].fillna("").astype(str).str.strip()
+        matches = paths[paths == pdf_path].index.tolist()
+        if matches:
+            match_index = matches[0]
+
+    if match_index is not None:
+        updated = False
+        if file_hash and "file_hash" in df_master.columns:
+            if not str(df_master.at[match_index, "file_hash"]).strip():
+                df_master.at[match_index, "file_hash"] = file_hash
+                updated = True
+        if pdf_path and "pdf_path" in df_master.columns:
+            if str(df_master.at[match_index, "pdf_path"]).strip() != pdf_path:
+                df_master.at[match_index, "pdf_path"] = pdf_path
+                updated = True
+        if "collection" in entry_dict and "collection" in df_master.columns:
+            current = str(df_master.at[match_index, "collection"]).strip()
+            value = str(entry_dict.get("collection", "")).strip()
+            if value and (not current or current != value):
+                df_master.at[match_index, "collection"] = value
+                updated = True
+        if "type" in entry_dict and "type" in df_master.columns:
+            value = str(entry_dict.get("type", "")).strip()
+            current = df_master.at[match_index, "type"]
+            if value:
+                if value == "book" and str(entry_dict.get("isbn", "")).strip():
+                    df_master.at[match_index, "type"] = value
+                    updated = True
+                elif _should_update_type(current):
+                    df_master.at[match_index, "type"] = value
+                    updated = True
+        if "isbn" in entry_dict and "isbn" in df_master.columns:
+            value = str(entry_dict.get("isbn", "")).strip()
+            if value and not str(df_master.at[match_index, "isbn"]).strip():
+                df_master.at[match_index, "isbn"] = value
+                updated = True
+        if "title" in entry_dict and "title" in df_master.columns:
+            value = str(entry_dict.get("title", "")).strip()
+            if value and not str(df_master.at[match_index, "title"]).strip():
+                df_master.at[match_index, "title"] = value
+                updated = True
+        if "authors" in entry_dict and "authors" in df_master.columns:
+            value = str(entry_dict.get("authors", "")).strip()
+            if value and not str(df_master.at[match_index, "authors"]).strip():
+                df_master.at[match_index, "authors"] = value
+                updated = True
+        if "keywords" in entry_dict and "keywords" in df_master.columns:
+            value = str(entry_dict.get("keywords", "")).strip()
+            if value and not str(df_master.at[match_index, "keywords"]).strip():
+                df_master.at[match_index, "keywords"] = value
+                updated = True
+        if "year" in entry_dict and "year" in df_master.columns:
+            value = str(entry_dict.get("year", "")).strip()
+            if value and not str(df_master.at[match_index, "year"]).strip():
+                df_master.at[match_index, "year"] = value
+                updated = True
+        if "source" in entry_dict and "source" in df_master.columns:
+            current = str(df_master.at[match_index, "source"]).strip()
+            value = str(entry_dict.get("source", "")).strip()
+            if value and not current:
+                df_master.at[match_index, "source"] = value
+                updated = True
+        if "added_at" in entry_dict and "added_at" in df_master.columns:
+            current = str(df_master.at[match_index, "added_at"]).strip()
+            value = str(entry_dict.get("added_at", "")).strip()
+            if value and not current:
+                df_master.at[match_index, "added_at"] = value
+                updated = True
+        if run_tag and "last_seen_run" in df_master.columns:
+            df_master.at[match_index, "last_seen_run"] = run_tag
+            updated = True
+        return df_master, {"action": "updated" if updated else "existing", "index": int(match_index)}
+
+    for name in entry_dict:
+        if name not in df_master.columns:
+            df_master[name] = ""
+    new_record = {name: "" for name in df_master.columns}
+    for name, value in entry_dict.items():
+        new_record[name] = value
+    if not new_record.get("source"):
+        new_record["source"] = "library"
+    if run_tag and "last_seen_run" in df_master.columns:
+        new_record["last_seen_run"] = run_tag
+
+    df_master = pd.concat([df_master, pd.DataFrame([new_record])], ignore_index=True)
+    return df_master, {"action": "created", "index": len(df_master) - 1}

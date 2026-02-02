@@ -10,6 +10,7 @@ from pathlib import Path
 import pandas as pd
 
 from motherload_projet.config import get_openalex_key, get_unpaywall_email
+from motherload_projet.ingest.local_pdf import ingest_pdf, write_manual_ingest_report
 from motherload_projet.library.paths import (
     archives_root,
     bibliotheque_root,
@@ -279,6 +280,9 @@ def _run_uqar_proxy_export() -> int:
     except Exception as exc:
         print(f"Erreur export proxy_queue: {exc}")
         return 2
+    message = result.get("message")
+    if message:
+        print(message)
     print(f"Proxy queue: {result['proxy_queue_path']}")
     print(f"Rapport: {result['report_path']}")
     return 0
@@ -355,7 +359,58 @@ def _run_uqar_proxy_ingest() -> int:
     print(f"Bibliotheque: {result['bibliotheque_path']}")
     print(f"A telecharger: {result['to_be_downloaded_path']}")
     print(f"Rapport: {result['report_path']}")
+    print(f"Ingest rapport: {result['ingest_report_path']}")
     print(f"Catalog diff: {result['catalog_diff']}")
+    return 0
+
+
+def _run_manual_ingest_ui() -> int:
+    """Lance l app d ingestion manuelle."""
+    try:
+        from motherload_projet.desktop_app.app import run_app
+    except Exception as exc:
+        print(f"Erreur UI: {exc}")
+        return 2
+    try:
+        run_app()
+    except Exception as exc:
+        print(f"Erreur UI: {exc}")
+        return 2
+    return 0
+
+
+def _run_manual_ingest_one(pdf_path: str | None) -> int:
+    """Ingere un PDF local."""
+    if not pdf_path:
+        print("ERREUR: --pdf requis pour --manual-ingest-one")
+        return 2
+    try:
+        collection = choose_collection(collections_root())
+    except KeyboardInterrupt:
+        print("Annulé")
+        return 0
+    if collection is None:
+        print("Aucune collection choisie.")
+        return 0
+
+    try:
+        collection_label = str(collection.relative_to(collections_root()))
+    except ValueError:
+        collection_label = str(collection)
+
+    result = ingest_pdf(Path(pdf_path), collection_label, None)
+    if result.get("status") == "ok":
+        print(f"OK: {result.get('pdf_path')}")
+    elif result.get("reason_code") == "DUPLICATE_HASH":
+        print("DUPLICATE_HASH: deja present dans master_catalog.")
+    else:
+        error = result.get("error") or result.get("reason_code")
+        print(f"ERREUR: {error}")
+
+    report_path = write_manual_ingest_report([result])
+    print(f"Rapport: {report_path}")
+    if result.get("status") == "error":
+        return 2
     return 0
 
 
@@ -466,12 +521,22 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--uqar-proxy-open",
         action="store_true",
-        help="Ouvre un lien UQAR depuis la proxy_queue.",
+        help="Ouvre le premier lien UQAR restant dans la proxy_queue.",
     )
     parser.add_argument(
         "--uqar-proxy-ingest",
         action="store_true",
-        help="Ingere les PDFs du dossier manual_import.",
+        help="Ingere les PDFs du dossier manual_import (configurable).",
+    )
+    parser.add_argument(
+        "--manual-ingest-ui",
+        action="store_true",
+        help="Lance l app d ingestion manuelle (Tkinter).",
+    )
+    parser.add_argument(
+        "--manual-ingest-one",
+        action="store_true",
+        help="Ingere un PDF local (utilise --pdf).",
     )
     parser.add_argument(
         "--verbose-progress",
@@ -487,6 +552,11 @@ def _parse_args() -> argparse.Namespace:
         "--doi",
         type=str,
         help="DOI a utiliser avec --unpaywall-dry-run ou --unpaywall-fetch-one.",
+    )
+    parser.add_argument(
+        "--pdf",
+        type=str,
+        help="Chemin PDF a utiliser avec --manual-ingest-one.",
     )
     parser.add_argument(
         "--limit",
@@ -509,6 +579,10 @@ def main() -> None:
         raise SystemExit(_run_uqar_proxy_open())
     if args.uqar_proxy_ingest:
         raise SystemExit(_run_uqar_proxy_ingest())
+    if args.manual_ingest_ui:
+        raise SystemExit(_run_manual_ingest_ui())
+    if args.manual_ingest_one:
+        raise SystemExit(_run_manual_ingest_one(args.pdf))
     if args.unpaywall_fetch_one:
         raise SystemExit(_run_unpaywall_fetch_one(args.doi))
     if args.unpaywall_demo_batch:

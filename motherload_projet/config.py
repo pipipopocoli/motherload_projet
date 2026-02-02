@@ -28,3 +28,16 @@ def get_unpaywall_email() -> str | None:
 def get_openalex_key() -> str | None:
     """Retourne la cle OpenAlex."""
     return _read_env("OPENALEX_API_KEY")
+
+
+def get_uqar_ezproxy_prefix() -> str | None:
+    """Retourne le prefix UQAR EZproxy."""
+    return _read_env("UQAR_EZPROXY_PREFIX")
+
+
+def get_manual_import_subdir() -> str:
+    """Retourne le sous-dossier d import manuel."""
+    value = _read_env("MANUAL_IMPORT_SUBDIR")
+    if not value:
+        return "manual_import"
+    return value
