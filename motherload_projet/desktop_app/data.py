@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 import time
+import json
 from pathlib import Path
 from typing import Any
 
@@ -141,6 +142,30 @@ def count_to_be_downloaded() -> int:
         return 0
     df = pd.read_csv(path)
     return len(df)
+
+
+def load_scan_runs(limit: int = 2) -> list[dict[str, Any]]:
+    """Charge les derniers scans."""
+    latest_path = bibliotheque_root() / "scan_runs" / "latest.json"
+    if not latest_path.exists():
+        return []
+    try:
+        data = json.loads(latest_path.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    runs = data.get("runs", [])[:limit]
+
+    results: list[dict[str, Any]] = []
+    for item in runs:
+        path = Path(item.get("path", ""))
+        if not path.exists():
+            continue
+        try:
+            run_data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        results.append(run_data)
+    return results
 
 
 def load_master_frame(master_path: Path | None = None) -> pd.DataFrame:

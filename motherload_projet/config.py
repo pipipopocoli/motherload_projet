@@ -41,3 +41,8 @@ def get_manual_import_subdir() -> str:
     if not value:
         return "manual_import"
     return value
+
+
+def get_crossref_email() -> str | None:
+    """Retourne l email pour Crossref."""
+    return _read_env("CROSSREF_EMAIL")

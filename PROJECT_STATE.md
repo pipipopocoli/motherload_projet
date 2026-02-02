@@ -11,6 +11,8 @@
 - UQAR proxy ingest: python -m motherload_projet.cli --uqar-proxy-ingest
 - Manual ingest UI: python -m motherload_projet.cli --manual-ingest-ui
 - Manual ingest one: python -m motherload_projet.cli --manual-ingest-one --pdf /chemin/vers/fichier.pdf
+- Scan library: python -m motherload_projet.cli --scan-library
+- Scan + BibTeX: python -m motherload_projet.cli --scan-library --export-bib
 - Option: --verbose-progress (progress detaillee)
 Note: UQAR_EZPROXY_PREFIX requis pour generer les liens proxy.
 
@@ -32,7 +34,16 @@ ROOT: ~/Desktop/grand_librairy
 - reports/proxy_queue_report_YYYYMMDD_HHMM.txt
 - reports/ingest_report_YYYYMMDD_HHMM.txt
 - reports/manual_ingest_YYYYMMDD_HHMM.txt
+- reports/refs_without_pdf.csv
+- reports/pdfs_without_ref.csv
+- reports/refs_incomplete.csv
+- reports/duplicates_and_replacements.csv
 - bibliotheque/master_catalog.csv (sync)
+- bibliotheque/master_catalog.json
+- bibliotheque/complete_catalog.csv
+- bibliotheque/complete_catalog.json
+- bibliotheque/scan_runs/<timestamp>.json
+- bibliotheque/scan_runs/latest.json
 Règle: archiver les anciens to_be_downloaded_* dans bibliotheque/archives (garder le plus récent accessible).
 
 ## Statut
@@ -44,3 +55,4 @@ Phase 2.7: proxy UQAR (export/open/ingest) + liens EZproxy + import manuel PDFs.
 Phase 2.x: ingestion manuelle PDF (UI Tkinter + CLI one) + dedupe hash + update master_catalog.
 Phase 2.y: ecosysteme visuel (organigramme modules/fonctions + notes + auto update watchdog + deps).
 Phase 2.z: reorganisation dossiers (data_mining, local_pdf_update, rapport_activite, maintenance_manager, connecteurs).
+Phase 2.z1: scan bibliotheque + catalogues complets + rapports + export BibTeX + scan_runs.

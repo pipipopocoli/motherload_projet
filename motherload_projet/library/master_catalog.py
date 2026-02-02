@@ -18,6 +18,12 @@ DEFAULT_MASTER_COLUMNS = [
     "type",
     "authors",
     "keywords",
+    "journal",
+    "venue",
+    "volume",
+    "issue",
+    "pages",
+    "url",
     "status",
     "reason_code",
     "pdf_path",
@@ -30,6 +36,10 @@ DEFAULT_MASTER_COLUMNS = [
     "collection",
     "last_seen_run",
     "file_hash",
+    "primary_id",
+    "fingerprint",
+    "version",
+    "replaced_by",
     "source",
     "added_at",
 ]
@@ -253,6 +263,7 @@ def load_master_catalog(path: Path | str) -> pd.DataFrame:
         df = pd.read_csv(master_path)
     else:
         df = pd.DataFrame(columns=DEFAULT_MASTER_COLUMNS)
+    _ensure_columns(df, DEFAULT_MASTER_COLUMNS)
     _ensure_columns(df, MANUAL_COLUMNS)
     return df
 

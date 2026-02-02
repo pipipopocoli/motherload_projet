@@ -13,3 +13,4 @@ Journal de bord du projet.
 - 2026-02-01 04:20: Phase 2.x: ingestion manuelle PDF (UI Tkinter + CLI one) + dedupe hash + update master_catalog.
 - 2026-02-02 05:45: Phase 2.y: ecosysteme visuel (organigramme code + notes + auto update watchdog + deps).
 - 2026-02-02 06:10: Reorganisation des modules (data_mining, local_pdf_update, rapport_activite, maintenance_manager, connecteurs).
+- 2026-02-02 23:30: Scan bibliotheque v2 (catalogues master/complete, rapports d ecarts, export BibTeX, scan_runs).

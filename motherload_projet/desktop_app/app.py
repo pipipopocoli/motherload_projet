@@ -35,6 +35,7 @@ from motherload_projet.desktop_app.data import (
     count_pdfs,
     count_references,
     count_to_be_downloaded,
+    load_scan_runs,
     load_master_frame,
     search_pdfs_by_keyword,
     search_master,
@@ -43,9 +44,9 @@ from motherload_projet.desktop_app.data import (
 from motherload_projet.desktop_app.state import compute_progress, load_state, reset_tasks, save_state
 from motherload_projet.local_pdf_update.local_pdf import (
     ingest_pdf,
-    scan_library_pdfs,
     write_manual_ingest_report,
 )
+from motherload_projet.catalogs.scanner import scan_library as run_scan_library
 from motherload_projet.library.paths import (
     bibliotheque_root,
     collections_root,
@@ -932,12 +933,38 @@ def run_app() -> None:
         missing_count_var.set(str(count_missing_pdfs()))
         queue_count_var.set(str(count_to_be_downloaded()))
         last_refresh_var.set(datetime.now().strftime("Mis a jour: %H:%M:%S"))
+        runs = load_scan_runs(limit=2)
+        summary_lines: list[str] = []
+        error_lines: list[str] = []
+        for run in runs:
+            ts = run.get("timestamp", "")
+            total = run.get("total_pdfs", 0)
+            processed = run.get("processed_pdfs", 0)
+            created = run.get("created", 0)
+            updated = run.get("updated", 0)
+            errors = run.get("errors", 0)
+            warnings = run.get("warnings", 0)
+            percent = int((processed / total) * 100) if total else 0
+            summary_lines.append(
+                f"{ts} | {processed}/{total} ({percent}%) | +{created} / ~{updated} | err {errors} warn {warnings}"
+            )
+            counts = {}
+            counts.update(run.get("error_counts", {}) or {})
+            counts.update(run.get("warning_counts", {}) or {})
+            top = sorted(counts.items(), key=lambda item: item[1], reverse=True)[:3]
+            if top:
+                errors_fmt = ", ".join(f"{name}:{value}" for name, value in top)
+                error_lines.append(f"{ts} | {errors_fmt}")
+        scan_summary_var.set("\\n".join(summary_lines) if summary_lines else "Aucun scan disponible.")
+        scan_errors_var.set("\\n".join(error_lines) if error_lines else "-")
 
     dash_title_font = ("Avenir Next", 12, "bold")
     dash_value_font = ("Avenir Next", 22, "bold")
     dash_meta_font = ("Avenir Next", 10)
 
     last_refresh_var = tk.StringVar(value="")
+    scan_summary_var = tk.StringVar(value="")
+    scan_errors_var = tk.StringVar(value="")
 
     header = tk.Frame(dashboard_tab)
     header.pack(fill="x", pady=(0, 8))
@@ -998,27 +1025,56 @@ def run_app() -> None:
         side="left"
     )
 
+    scans_frame = tk.Frame(dashboard_tab)
+    scans_frame.pack(fill="x", pady=(4, 6))
+    tk.Label(scans_frame, text="Derniers scans", font=dash_meta_font).pack(anchor="w")
+    tk.Label(
+        scans_frame,
+        textvariable=scan_summary_var,
+        font=dash_meta_font,
+        justify="left",
+        anchor="w",
+    ).pack(fill="x")
+    tk.Label(scans_frame, text="Top erreurs", font=dash_meta_font).pack(
+        anchor="w", pady=(4, 0)
+    )
+    tk.Label(
+        scans_frame,
+        textvariable=scan_errors_var,
+        font=dash_meta_font,
+        justify="left",
+        anchor="w",
+    ).pack(fill="x")
+
     scan_running = {"active": False}
 
-    def scan_library() -> None:
+    def scan_library_action() -> None:
         if scan_running["active"]:
             set_status("Analyse deja en cours...")
             return
         scan_running["active"] = True
         set_status("Analyse des PDFs en cours...")
 
+        def _progress(info: dict) -> None:
+            if info.get("stage") == "item":
+                done = info.get("done", 0)
+                total = info.get("total", 0)
+                percent = int((done / total) * 100) if total else 0
+                scan_summary_var.set(f"En cours: {done}/{total} ({percent}%)")
+                set_status(f"Scan en cours: {done}/{total}")
+
         def _worker() -> None:
-            result = scan_library_pdfs()
+            result = run_scan_library(progress_cb=_progress, export_catalogs_flag=True, export_bib_flag=False)
 
             def _finish() -> None:
                 scan_running["active"] = False
                 refresh_counts()
-                report = result.get("report_path")
-                suffix = f" Rapport: {report}" if report else ""
+                errors = result.get("errors", 0)
+                created = result.get("created", 0)
+                updated = result.get("updated", 0)
+                total = result.get("total_pdfs", 0)
                 set_status(
-                    f"Scan termine: {result['total']} PDFs, "
-                    f"{result['created']} nouveaux, {result['updated']} maj, {result['errors']} erreurs."
-                    f"{suffix}"
+                    f"Scan termine: {total} PDFs, +{created} / ~{updated}, err {errors}."
                 )
 
             root.after(0, _finish)
@@ -1031,7 +1087,7 @@ def run_app() -> None:
     ttk.Button(actions, text="Rafraichir", command=refresh_counts).pack(
         side="left"
     )
-    ttk.Button(actions, text="Analyser PDFs", command=scan_library).pack(
+    ttk.Button(actions, text="Analyser PDFs", command=scan_library_action).pack(
         side="left", padx=(8, 0)
     )
 
@@ -1591,6 +1647,14 @@ def run_app() -> None:
 
     refresh_counts()
     update_progress_from_state(state)
+
+    refresh_interval_ms = 30000
+
+    def _auto_refresh() -> None:
+        refresh_counts()
+        root.after(refresh_interval_ms, _auto_refresh)
+
+    root.after(refresh_interval_ms, _auto_refresh)
 
     def _on_close() -> None:
         if deps_auto_stop.get("value") is not None:

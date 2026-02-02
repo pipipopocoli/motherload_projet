@@ -34,6 +34,7 @@ from motherload_projet.data_mining.recuperation_article.run_unpaywall_batch impo
     run_unpaywall_demo_batch,
     run_unpaywall_queue,
 )
+from motherload_projet.catalogs.scanner import scan_library as run_catalog_scan
 from motherload_projet.data_mining.recuperation_article.uqar_proxy_ingest import (
     infer_run_csv_path,
     ingest_manual_pdfs,
@@ -519,6 +520,21 @@ def _parse_args() -> argparse.Namespace:
         help="Lance un batch Unpaywall depuis la queue.",
     )
     parser.add_argument(
+        "--scan-library",
+        action="store_true",
+        help="Scanne la librairie et met a jour les catalogues.",
+    )
+    parser.add_argument(
+        "--export-catalogs",
+        action="store_true",
+        help="Exporte master_catalog et complete_catalog apres scan.",
+    )
+    parser.add_argument(
+        "--export-bib",
+        action="store_true",
+        help="Exporte un BibTeX apres scan.",
+    )
+    parser.add_argument(
         "--uqar-proxy-export",
         action="store_true",
         help="Exporte une proxy_queue UQAR depuis to_be_downloaded.",
@@ -574,6 +590,13 @@ def _parse_args() -> argparse.Namespace:
 def main() -> None:
     """Lance le CLI."""
     args = _parse_args()
+    if args.scan_library:
+        result = run_catalog_scan(
+            export_catalogs_flag=True,
+            export_bib_flag=bool(args.export_bib),
+        )
+        print(result)
+        return
     if args.make_sample_csv:
         raise SystemExit(_make_sample_csv())
     if args.oa_smoke:

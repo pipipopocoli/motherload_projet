@@ -1,6 +1,7 @@
 # motherload_projet
 
 Note: quand je parle de "momo", je parle de ce projet (motherload_projet).
+Note: quand je parle de "l app", je parle de l app desktop visuelle (Tkinter).
 
 ## Installation
 
@@ -105,6 +106,41 @@ Le PDF est deplace vers:
 Le `master_catalog.csv` est mis a jour (file_hash/source/added_at) et un
 report est genere dans `~/Desktop/grand_librairy/reports/`.
 
+## Phase 2.z (Scan bibliotheque + catalogues + BibTeX)
+
+Scan complet (met a jour master + complete_catalog + rapports):
+
+```bash
+python -m motherload_projet.cli --scan-library
+```
+
+Scan + export BibTeX:
+
+```bash
+python -m motherload_projet.cli --scan-library --export-bib
+```
+
+Sorties:
+- `master_catalog.csv` + `master_catalog.json`
+- `complete_catalog.csv` + `complete_catalog.json`
+- `export_master.bib` (si option)
+- `scan_runs/<timestamp>.json` + `scan_runs/latest.json`
+- rapports d ecarts (CSV)
+
+Note: la requete Crossref utilise CROSSREF_EMAIL (ou UNPAYWALL_EMAIL si absent).
+
+Pipeline scan (10 etapes):
+1) Lecture PDF + hash + meta basique + texte (1-2 pages)
+2) Detection DOI (regex) + scan pages (mode ctrl+f)
+3) Detection ISBN
+4) OCR si texte/DOI/ISBN manquants
+5) Heuristiques titre/auteurs/annee (texte)
+6) Enrichissement Crossref si DOI
+7) Enrichissement Semantic Scholar si DOI
+8) Recherche Crossref par titre/auteur si DOI absent
+9) Recherche Semantic Scholar par titre/auteur si DOI absent
+10) Fallback nom de fichier + warning si metadonnees core manquantes
+
 ## Phase 2.y (Ecosysteme - visualisation code)
 
 - Onglet \"Ecosysteme\" dans l UI.
@@ -123,6 +159,12 @@ report est genere dans `~/Desktop/grand_librairy/reports/`.
   - `to_be_downloaded_YYYYMMDD_HHMM.csv`
   - `proxy_queue_YYYYMMDD_HHMM.csv`
   - `master_catalog.csv`
+  - `master_catalog.json`
+  - `complete_catalog.csv`
+  - `complete_catalog.json`
+  - `export_master.bib` (option)
+  - `scan_runs/<timestamp>.json`
+  - `scan_runs/latest.json`
   - Archives: `~/Desktop/grand_librairy/bibliotheque/archives`
 - Rapports: `~/Desktop/grand_librairy/reports`
   - `run_report_YYYYMMDD_HHMM.txt`
@@ -130,6 +172,10 @@ report est genere dans `~/Desktop/grand_librairy/reports/`.
   - `proxy_queue_report_YYYYMMDD_HHMM.txt`
   - `ingest_report_YYYYMMDD_HHMM.txt`
   - `manual_ingest_YYYYMMDD_HHMM.txt`
+  - `refs_without_pdf.csv`
+  - `pdfs_without_ref.csv`
+  - `refs_incomplete.csv`
+  - `duplicates_and_replacements.csv`
 - Ecosysteme:
   - `~/Desktop/grand_librairy/ecosysteme_visualisation/index.json`
   - `~/Desktop/grand_librairy/ecosysteme_visualisation/notes/*.txt`
