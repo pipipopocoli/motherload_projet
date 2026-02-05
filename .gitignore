@@ -8,3 +8,29 @@ __pycache__/
 dist/
 build/
 *.egg-info/
+
+# Node / npm
+node_modules/
+.npm-cache/
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Logs / reports
+*.log
+mining_integration_test_report.*
+
+# Outputs / temp artifacts
+/outputs/
+/logs/
+/temp_test_lib/
+/test_mining_output/
+/test_crawler_biorxiv/
+/test_direct_download.pdf
+
+# Local DB
+/motherload_projet/data/librarium.db
+
+# macOS
+.DS_Store
