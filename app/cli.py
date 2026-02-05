@@ -9,7 +9,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from app.core.models import init_db
-from app.core.paths import get_db_path
 
 
 def cmd_init_db(args):
