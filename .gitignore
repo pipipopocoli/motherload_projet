@@ -1,6 +1,7 @@
 __pycache__/
 *.pyc
 .venv/
+venv/
 .env
 .pytest_cache/
 .mypy_cache/
@@ -8,3 +9,29 @@ __pycache__/
 dist/
 build/
 *.egg-info/
+*.log
+
+# Node / npm
+node_modules/
+.npm-cache/
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Logs / reports
+mining_integration_test_report.*
+
+# Outputs / temp artifacts
+/outputs/
+/logs/
+/temp_test_lib/
+/test_mining_output/
+/test_crawler_biorxiv/
+/test_direct_download.pdf
+
+# Local DB
+/legacy/motherload_projet/data/librarium.db
+
+# macOS
+.DS_Store
