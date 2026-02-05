@@ -1,98 +1,274 @@
-# AG_REPORT: Sprint 1 - Acquisition Backbone
+# AG_REPORT: Sprint 1 - Acquisition Backbone (EXPANDED)
 
 **Sprint:** Sprint 1  
-**Feature:** Acquisition Backbone  
+**Feature:** Acquisition Backbone + Services  
 **Date:** 2026-02-06  
-**Agent:** Antigravity (AG)
+**Agent:** Antigravity (AG)  
+**Branch:** sprint-1-acquisition
 
 ---
 
 ## CODEX TODO
 
-- [ ] Implement journal CSV import functionality
-- [ ] Add article acquisition from Unpaywall/SciHub
-- [ ] Implement confidence scoring algorithm
-- [ ] Add Deep Mining interface flags (external only)
-- [ ] Create article export to CSV functionality
-- [ ] Add batch processing for journal lists
-- [ ] Implement error handling and retry logic
-- [ ] Add progress tracking for long-running operations
+### Testing & CI
+- [ ] Add unit tests for CSV reader (valid/invalid formats)
+- [ ] Add unit tests for ArticleRecord data class
+- [ ] Add integration tests for DB batch operations
+- [ ] Add tests for worker thread signals
+- [ ] Set up pytest configuration
+- [ ] Add CI pipeline for automated testing
+
+### API Integration (Future Sprints)
+- [ ] Implement Crossref API client with httpx
+- [ ] Implement OpenAlex API client
+- [ ] Add retry logic with exponential backoff
+- [ ] Add rate limiting for API calls
+- [ ] Implement caching for API responses
+- [ ] Add API key management
+
+### Error Handling & Robustness
+- [ ] Add comprehensive error handling for network failures
+- [ ] Implement job resume capability (save progress)
+- [ ] Add validation for article metadata completeness
+- [ ] Implement duplicate detection improvements
+- [ ] Add data quality scoring algorithm
+
+### UI Enhancements
+- [ ] Add stop/cancel button for acquisition jobs
+- [ ] Add progress bar with percentage
+- [ ] Add estimated time remaining
+- [ ] Add job history/log viewer
+- [ ] Implement job queue management
+
+### Performance
+- [ ] Profile batch size for optimal performance
+- [ ] Add connection pooling for DB
+- [ ] Implement parallel journal processing
+- [ ] Add memory usage monitoring
+
+### Documentation
+- [ ] Add API documentation for services
+- [ ] Create user guide for acquisition workflow
+- [ ] Document configuration options
+- [ ] Add troubleshooting guide
 
 ---
 
 ## Context
 
-This sprint establishes the foundational infrastructure for the Motherload acquisition system:
+Sprint 1 establishes the complete acquisition infrastructure for Motherload:
 
-- **Database:** SQLite stored in `~/Library/Application Support/Motherload/` using platformdirs
-- **Models:** SQLAlchemy ORM for Journals and Articles tables
-- **CLI:** Command-line interface for database initialization and future exports
-- **Data Flow:** CSV input → Processing → Database → CSV export
+### Architecture
+- **Core Layer**: Database models, path management (platformdirs)
+- **Services Layer**: Acquisition logic, CSV reading, export/reporting
+- **UI Layer**: Qt desktop app with worker threads
+- **CLI Layer**: Command-line tools for automation
+
+### Data Flow
+```
+inputs/journals.csv 
+  → CSV Reader
+  → Acquisition Job (placeholder/Crossref/OpenAlex)
+  → Article Records (generator)
+  → Batch DB Writer
+  → Database (Application Support)
+  → Export (CSV + JSON reports)
+```
+
+### Key Components
+1. **app/core/**: Paths, models, DB initialization
+2. **app/services/acquisition/**: CSV reader, job, DB ops, export
+3. **app/workers/**: Qt worker threads for non-blocking operations
+4. **app/cli.py**: CLI with init-db, run-acquisition, export-articles
+5. **app/main.py**: Qt UI with acquisition button
 
 ---
 
 ## Decisions
 
-### Database Location
-Chose `~/Library/Application Support/Motherload/` following macOS best practices for application data. This ensures:
-- Proper permissions without sudo
-- Standard location for user data
-- Compatibility with sandboxing if needed later
+### 1. Generator Pattern for Acquisition
+Used Python generators (`yield`) for memory efficiency:
+- Processes articles one at a time
+- Enables streaming to database
+- Supports long-running jobs (hours/days)
+- Allows early termination
 
-### SQLAlchemy vs Raw SQLite
-Selected SQLAlchemy for:
-- Type safety and ORM benefits
-- Easier migrations in future sprints
-- Better integration with Python ecosystem
+### 2. Batch Database Commits
+Commits every 100 articles by default:
+- Balances performance vs. data safety
+- Prevents memory bloat
+- Enables progress tracking
+- Recoverable from failures
 
-### CSV as Input Format (v1)
-Mandatory CSV input for journals aligns with:
-- Easy data preparation from existing sources
-- Simple validation and debugging
-- Future migration path to other formats
+### 3. Worker Thread Pattern (Qt)
+Separate thread for acquisition prevents UI freezing:
+- Uses QThread with signals/slots
+- Progress updates via signals
+- Stoppable jobs
+- Clean separation of concerns
+
+### 4. Placeholder Implementation
+Current acquisition generates dummy data:
+- Allows end-to-end testing
+- Validates architecture
+- Real API integration in future sprint
+- Clear TODO markers for Codex
+
+### 5. Dual Interface (CLI + GUI)
+Both command-line and graphical interfaces:
+- CLI for automation/scripting
+- GUI for interactive use
+- Shared business logic
+- Consistent behavior
+
+### 6. Loguru for Logging
+Chose loguru over stdlib logging:
+- Simpler API
+- Automatic rotation
+- Better formatting
+- File + console output
+
+---
+
+## Implementation Details
+
+### CSV Reader (`csv_reader.py`)
+- Supports both `journal_name` and `name` columns
+- Validates required fields
+- Handles missing/malformed data
+- Returns structured dictionaries
+
+### Acquisition Job (`job.py`)
+- Generator function for memory efficiency
+- ArticleRecord data class for type safety
+- Placeholder yields 3 articles/year
+- Ready for Crossref/OpenAlex integration
+
+### Database Operations (`db_ops.py`)
+- Batch inserts with configurable size
+- Duplicate detection via DOI uniqueness
+- Error tracking and reporting
+- Transaction management
+
+### Export & Reporting (`export.py`)
+- CSV export with all metadata fields
+- JSON coverage report with statistics
+- Field completeness tracking
+- Extensible report format
+
+### Worker Thread (`acquisition_worker.py`)
+- Non-blocking Qt thread
+- Progress signals for UI updates
+- Stoppable via flag
+- Error propagation
 
 ---
 
 ## Challenges
 
-### Deep Mining Isolation
-Per constraints, Deep Mining internals are not modified. Only external interfaces and flags will be added in future sprints when integration is needed.
+### 1. Import Path Management
+**Issue**: Python module imports from `app/` package  
+**Solution**: Added `sys.path` manipulation in CLI  
+**Future**: Consider proper package installation
 
-### Confidence Scoring
-Article confidence field (0.0-1.0) is prepared but algorithm not yet implemented. Will be defined based on:
-- Metadata completeness
-- Source reliability
-- Cross-reference validation
+### 2. Dependency Installation
+**Issue**: Virtual environment pip broken  
+**Solution**: Document manual installation steps  
+**Future**: Provide setup script
+
+### 3. Database Location
+**Issue**: Permissions on Desktop  
+**Solution**: Use Application Support (platformdirs)  
+**Benefit**: Follows macOS best practices
+
+### 4. UI Responsiveness
+**Issue**: Long-running jobs freeze UI  
+**Solution**: Worker thread with signals  
+**Benefit**: Professional UX
+
+---
+
+## File Structure
+
+```
+app/
+├── core/
+│   ├── __init__.py
+│   ├── paths.py          # platformdirs integration
+│   └── models.py         # SQLAlchemy models
+├── services/
+│   ├── __init__.py
+│   └── acquisition/
+│       ├── __init__.py
+│       ├── csv_reader.py # Journal CSV parsing
+│       ├── job.py        # Acquisition generator
+│       ├── db_ops.py     # Batch DB operations
+│       └── export.py     # CSV/JSON export
+├── workers/
+│   ├── __init__.py
+│   └── acquisition_worker.py  # Qt worker thread
+├── cli.py               # CLI interface
+└── main.py              # Qt GUI
+
+inputs/
+└── journals.csv         # Journal list
+
+outputs/
+├── articles_export.csv  # Generated by export
+└── coverage_report.json # Generated by export
+
+logs/
+└── acquisition.log      # Loguru output
+```
 
 ---
 
 ## Next Steps
 
-1. **Sprint 2:** Implement journal CSV import
-2. **Sprint 3:** Add article acquisition from external sources
-3. **Sprint 4:** Implement confidence scoring
-4. **Sprint 5:** Complete export functionality
-5. **Future:** Deep Mining integration via external interfaces
+### Sprint 2: Real API Integration
+1. Implement Crossref client
+2. Implement OpenAlex client
+3. Add retry logic
+4. Add rate limiting
+5. Test with real data
+
+### Sprint 3: PDF Acquisition
+1. Integrate Unpaywall
+2. Add PDF download
+3. Store PDFs locally
+4. Link to articles table
+
+### Sprint 4: Advanced Features
+1. Job queue management
+2. Scheduled acquisitions
+3. Incremental updates
+4. Conflict resolution
 
 ---
 
 ## Verification
 
+See `SPRINT1_VERIFICATION.md` for detailed commands.
+
+### Quick Test
 ```bash
 # Initialize database
 python app/cli.py init-db
 
-# Verify database location
-ls -la ~/Library/Application\ Support/Motherload/
+# Run acquisition (dry-run)
+python app/cli.py run-acquisition --dry-run --year-from 2023 --year-to 2024
 
-# Check schema
-sqlite3 ~/Library/Application\ Support/Motherload/motherload.sqlite ".schema"
+# Run acquisition (real)
+python app/cli.py run-acquisition --year-from 2023 --year-to 2024
 
-# View sample journals
-cat inputs/journals.csv
+# Export articles
+python app/cli.py export-articles
+
+# Launch GUI
+python app/main.py
 ```
 
 ---
 
-**Status:** ✓ Sprint 1 Complete  
-**Next Sprint:** Sprint 2 - Journal Import
+**Status:** ✓ Sprint 1 Complete (Expanded)  
+**Next Sprint:** Sprint 2 - API Integration (Crossref/OpenAlex)
