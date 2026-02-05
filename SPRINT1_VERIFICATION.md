@@ -1,122 +1,197 @@
-# Sprint 1 - Verification Commands
+# Sprint 1 - Acquisition Backbone: Verification Guide
 
-## Quick Start
+## Prerequisites
 
-### 1. Install Dependencies
 ```bash
 cd /Users/oliviercloutier/Desktop/motherload_projet
-pip install platformdirs sqlalchemy
+
+# Install dependencies
+pip install platformdirs sqlalchemy httpx loguru PySide6
 ```
 
-### 2. Run Automated Verification
-```bash
-python3 verify_sprint1.py
-```
+## 1. Database Initialization
 
-Expected output:
-```
-============================================================
-Sprint 1 - Acquisition Backbone Verification
-============================================================
-
-✓ All dependencies installed
-
-=== Testing Database Initialization ===
-✓ Database initialized at: /Users/oliviercloutier/Library/Application Support/Motherload/motherload.sqlite
-✓ Tables created: journals, articles
-✓ Database created at: /Users/oliviercloutier/Library/Application Support/Motherload/motherload.sqlite
-  Size: [size] bytes
-
-=== Verifying Database Schema ===
-✓ Table 'journals' exists
-  Columns: id, name, issn, publisher, created_at, updated_at
-✓ Table 'articles' exists
-  Columns: id, doi, title, authors, year, journal, abstract, url, pdf_url, source, confidence, created_at, updated_at
-
-=== Verifying Sample Data ===
-✓ journals.csv exists with 11 lines (including header)
-  First line: name,issn,publisher...
-
-=== Verifying Outputs Directory ===
-✓ outputs/ directory exists
-
-=== Verifying Documentation ===
-✓ AG_REPORT.md exists
-  Has CODEX TODO section: ✓
-
-============================================================
-VERIFICATION SUMMARY
-============================================================
-✓ PASS: Database Initialization
-✓ PASS: Database Schema
-✓ PASS: Sample Data
-✓ PASS: Outputs Directory
-✓ PASS: Documentation
-
-Total: 5/5 tests passed
-
-🎉 All verification tests passed!
-```
-
-## Manual Verification
-
-### Test CLI Help
-```bash
-python app/cli.py --help
-```
-
-### Initialize Database
 ```bash
 python app/cli.py init-db
 ```
 
-### Check Database Location
-```bash
-ls -la ~/Library/Application\ Support/Motherload/
+**Expected Output:**
+```
+✓ Database initialized at: /Users/oliviercloutier/Library/Application Support/Motherload/motherload.sqlite
+✓ Tables created: journals, articles
 ```
 
-### Inspect Database Schema
+**Verify:**
 ```bash
+ls -la ~/Library/Application\ Support/Motherload/
 sqlite3 ~/Library/Application\ Support/Motherload/motherload.sqlite ".schema"
 ```
 
-### View Sample Journals
-```bash
-cat inputs/journals.csv
-```
-
-### Test Export Placeholder
-```bash
-python app/cli.py export-articles
-```
-
-## Git Status
-
-### View Changes
-```bash
-git log --oneline -1
-git show --stat
-```
-
-### Branch Info
-```bash
-git branch
-# Should show: * sprint-1-acquisition
-```
-
-## File Structure Verification
+## 2. Dry-Run Acquisition
 
 ```bash
-# Check new files exist
-ls -la app/core/
-ls -la inputs/
-ls -la outputs/
-ls -la docs/context_pack/AG_REPORT.md
+python app/cli.py run-acquisition --dry-run --year-from 2023 --year-to 2024
 ```
+
+**Expected Output:**
+```
+✓ Loaded 10 journals
+
+→ Processing: Nature
+  Found 6 articles
+  [DRY RUN] Would save 6 articles
+
+→ Processing: Science
+  Found 6 articles
+  [DRY RUN] Would save 6 articles
+
+...
+
+[DRY RUN] Would process 60 articles total
+```
+
+## 3. Real Acquisition (Placeholder Data)
+
+```bash
+python app/cli.py run-acquisition --year-from 2023 --year-to 2024
+```
+
+**Expected Output:**
+```
+✓ Loaded 10 journals
+
+→ Processing: Nature
+  Found 6 articles
+  Saved: 6 new, 0 duplicates
+
+...
+
+✓ Total articles processed: 60
+  Inserted: 60
+  Duplicates: 0
+  Errors: 0
+
+✓ Exported to: outputs/articles_export.csv
+✓ Coverage report: outputs/coverage_report.json
+```
+
+## 4. Verify Outputs
+
+```bash
+# Check CSV export
+cat outputs/articles_export.csv | head -n 5
+
+# Check coverage report
+cat outputs/coverage_report.json
+```
+
+**Expected JSON Structure:**
+```json
+{
+  "generated_at": "2024-02-06T...",
+  "total_articles": 60,
+  "coverage": {
+    "doi": {"count": 60, "percentage": 100.0},
+    "abstract": {"count": 60, "percentage": 100.0},
+    "pdf_url": {"count": 0, "percentage": 0.0}
+  },
+  "missing_fields": {
+    "doi": 0,
+    "abstract": 0,
+    "pdf_url": 60
+  },
+  "job_stats": {
+    "inserted": 60,
+    "duplicates": 0,
+    "errors": 0
+  }
+}
+```
+
+## 5. Export Articles
+
+```bash
+python app/cli.py export-articles --limit 10
+```
+
+**Expected Output:**
+```
+✓ Exported 10 articles to: outputs/articles_export.csv
+✓ Coverage report: outputs/coverage_report.json
+  Total articles: 60
+  DOI coverage: 100.0%
+```
+
+## 6. Launch Qt GUI
+
+```bash
+python app/main.py
+```
+
+**Expected Behavior:**
+1. Window opens with 3-column layout
+2. Left panel has "Run Acquisition" button
+3. Click button → Progress log shows acquisition
+4. UI remains responsive during acquisition
+5. Completion message shows statistics
+
+## 7. Verify Database Contents
+
+```bash
+sqlite3 ~/Library/Application\ Support/Motherload/motherload.sqlite
+
+# SQL commands:
+SELECT COUNT(*) FROM journals;
+SELECT COUNT(*) FROM articles;
+SELECT * FROM journals LIMIT 5;
+SELECT doi, title, year FROM articles LIMIT 5;
+.quit
+```
+
+## 8. Check Logs
+
+```bash
+cat logs/acquisition.log
+```
+
+## Troubleshooting
+
+### Import Errors
+If you see `ModuleNotFoundError: No module named 'app'`:
+- Ensure you're running from project root
+- CLI adds project root to sys.path automatically
+
+### Database Permission Errors
+If database creation fails:
+- Check `~/Library/Application Support/` permissions
+- platformdirs should handle this automatically
+
+### Missing Dependencies
+```bash
+pip install -r requirements.txt
+```
+
+### Qt Display Issues
+If GUI doesn't appear:
+- Check PySide6 installation
+- Try: `python -c "from PySide6.QtWidgets import QApplication; print('OK')"`
+
+## Success Criteria
+
+- ✅ Database created in Application Support
+- ✅ Journals and articles tables exist
+- ✅ Dry-run completes without errors
+- ✅ Real acquisition saves to database
+- ✅ CSV export generates valid file
+- ✅ Coverage report shows statistics
+- ✅ Qt GUI launches and runs acquisition
+- ✅ UI remains responsive during job
+- ✅ Logs written to logs/acquisition.log
 
 ## Next Steps
 
-After verification passes:
-1. Review the walkthrough document
-2. Test database initialization
-3. Prepare for Sprint 2 (Journal Import)
+After verification:
+1. Review code structure
+2. Plan Sprint 2 (API integration)
+3. Identify improvements
+4. Document any issues
