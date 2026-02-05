@@ -1,28 +1,12 @@
 # -*- mode: python ; coding: utf-8 -*-
-from PyInstaller.utils.hooks import collect_all
 
-datas = [
-    ('motherload_projet/agents_manuals', 'motherload_projet/agents_manuals'),
-    ('motherload_projet/catalogs', 'motherload_projet/catalogs'),
-]
-binaries = []
-hiddenimports = [
-    'tkinterdnd2',
-    'pandas',
-    'openpyxl',
-    'motherload_projet.ui.dashboard',
-    'motherload_projet.ui.log_console',
-    'motherload_projet.desktop_app.agent_status',
-]
-tmp_ret = collect_all('tkinterdnd2')
-datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
 a = Analysis(
-    ['motherload_projet/desktop_app/app.py'],
+    ['app/main.py'],
     pathex=[],
-    binaries=binaries,
-    datas=datas,
-    hiddenimports=hiddenimports,
+    binaries=[],
+    datas=[],
+    hiddenimports=[],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -44,7 +28,7 @@ exe = EXE(
     upx=True,
     console=False,
     disable_windowed_traceback=False,
-    argv_emulation=True,
+    argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
@@ -62,5 +46,5 @@ app = BUNDLE(
     coll,
     name='Motherload.app',
     icon=None,
-    bundle_identifier='com.oliviercloutier.motherload',
+    bundle_identifier=None,
 )
