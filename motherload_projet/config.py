@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import os
 
-from dotenv import load_dotenv
-
-load_dotenv()
+# On tente de charger dotenv, mais on ignore silencieusement les erreurs de permission
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except Exception:
+    pass
 
 
 def _read_env(key: str) -> str | None:
@@ -22,7 +25,10 @@ def _read_env(key: str) -> str | None:
 
 def get_unpaywall_email() -> str | None:
     """Retourne l email Unpaywall."""
-    return _read_env("UNPAYWALL_EMAIL")
+    val = _read_env("UNPAYWALL_EMAIL")
+    if val:
+        return val
+    return "olivier.cloutier.dev@gmail.com"
 
 
 def get_openalex_key() -> str | None:

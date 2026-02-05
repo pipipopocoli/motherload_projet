@@ -1,0 +1,14 @@
+RAPPORT 'LE GRAND NETTOYAGE'
+Date: 2026-02-05 02:57:35.547713
+Total Scanned: 3
+Renamed/Moved: 3
+New Catalog Entries: 3
+Moved to _Inconnus_A_Trier: 1
+Semantic Suggestions: 1
+Errors: 0
+----------------------------------------
+DETAILS:
+MOVED/RENAMED: unknown.pdf -> Bio/_Inconnus_A_Trier/unknown.pdf
+MOVED/RENAMED: badname.pdf -> Bio/Sub1/Smith - 2020 - Cell Biology.pdf
+- arch.pdf | SUGGESTION: Move from 'Bio' to 'Architecture'
+MOVED/RENAMED: arch.pdf -> Bio/Sub1/Doe - 2021 - Modern Architecture Design.pdf

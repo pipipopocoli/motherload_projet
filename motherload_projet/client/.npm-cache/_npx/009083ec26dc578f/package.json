@@ -1,0 +1,10 @@
+{
+  "dependencies": {
+    "electron-builder": "^26.7.0"
+  },
+  "_npx": {
+    "packages": [
+      "electron-builder"
+    ]
+  }
+}

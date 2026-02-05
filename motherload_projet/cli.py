@@ -12,6 +12,7 @@ import pandas as pd
 from motherload_projet.config import get_openalex_key, get_unpaywall_email
 from motherload_projet.local_pdf_update.local_pdf import (
     ingest_pdf,
+    retro_clean_library,
     write_manual_ingest_report,
 )
 from motherload_projet.library.paths import (
@@ -47,6 +48,7 @@ from motherload_projet.data_mining.recuperation_article.uqar_proxy_queue import 
     latest_to_be_downloaded,
     open_proxy_queue,
 )
+from motherload_projet.maintenance_manager.check_health import check_library_health
 
 UNPAYWALL_DEMO_DOIS = [
     "10.7717/peerj.4375",
@@ -438,6 +440,79 @@ def _unique_path(base: Path) -> Path:
         counter += 1
 
 
+def _run_check_health(move_corrupt: bool = False) -> int:
+    """Lance le scan de sante des PDFs."""
+    library_dir = ensure_dir(library_root())
+    quarantine_dir = library_dir / "quarantine"
+    
+    check_library_health(library_dir, quarantine_dir, move_corrupt=move_corrupt)
+    return 0
+
+
+def _run_summarize(pdflist: list[str]) -> int:
+    """Lance le resume LLM pour une liste de PDFs ou dossiers."""
+    from motherload_projet.maintenance_manager.summarize import summarize_pdf
+    
+    for item in pdflist:
+        path = Path(item)
+        if path.is_file() and path.suffix.lower() == ".pdf":
+            summarize_pdf(path)
+        elif path.is_dir():
+            print(f"Traite dossier: {path}")
+            for sub in path.rglob("*.pdf"):
+                summarize_pdf(sub)
+        else:
+            print(f"Ignore: {item}")
+    return 0
+
+
+def _run_extract_bib(pdflist: list[str]) -> int:
+    """Extrait la biblio des PDFs."""
+    from motherload_projet.data_mining.pdf_parsing import extract_bibliography
+    
+    for item in pdflist:
+        path = Path(item)
+        if path.is_file() and path.suffix.lower() == ".pdf":
+            print(f"Extract Bib: {path.name}")
+            bib = extract_bibliography(path)
+            if bib:
+                out_path = path.with_suffix(".bib.txt")
+                out_path.write_text(bib, encoding="utf-8")
+                print(f" -> Cree: {out_path.name} ({len(bib)} cars)")
+            else:
+                print(" -> Pas de biblio trouvee")
+    return 0
+
+
+def _run_test_doi(pdflist: list[str]) -> int:
+    """Teste l'extraction de DOI."""
+    from motherload_projet.data_mining.pdf_parsing import extract_doi_advanced
+    
+    for item in pdflist:
+        path = Path(item)
+        if path.is_file() and path.suffix.lower() == ".pdf":
+            doi = extract_doi_advanced(path)
+            print(f"{path.name} -> {doi or 'NON TROUVE'}")
+    return 0
+
+
+def _run_batch_summarize(collection_path: str, force: bool = False) -> int:
+    """Lance le batch summarization sur une collection."""
+    from motherload_projet.maintenance_manager.batch_summarize import batch_summarize_collection
+    
+    path = Path(collection_path)
+    if not path.exists():
+        print(f"Collection introuvable: {collection_path}")
+        return 2
+        
+    stats = batch_summarize_collection(path, force=force)
+    
+    # Code de sortie selon resultats
+    if stats["errors"] > 0:
+        return 1  # Partial success
+    return 0
+
+
 def _archive_old_downloads(
     bib_root: Path, archives_dir: Path, keep_path: Path
 ) -> list[Path]:
@@ -525,6 +600,16 @@ def _parse_args() -> argparse.Namespace:
         help="Scanne la librairie et met a jour les catalogues.",
     )
     parser.add_argument(
+        "--retro-clean-library",
+        action="store_true",
+        help="Le Grand Nettoyage: Renomme et trie TOUTE la librairie.",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Mode simulation: affiche les changements sans les appliquer (avec --retro-clean-library).",
+    )
+    parser.add_argument(
         "--export-catalogs",
         action="store_true",
         help="Exporte master_catalog et complete_catalog apres scan.",
@@ -580,9 +665,49 @@ def _parse_args() -> argparse.Namespace:
         help="Chemin PDF a utiliser avec --manual-ingest-one.",
     )
     parser.add_argument(
+        "--check-health",
+        action="store_true",
+        help="Scanne la librairie pour trouver les PDFs corrompus.",
+    )
+    parser.add_argument(
+        "--move-corrupt",
+        action="store_true",
+        help="Deplace les fichiers corrompus vers un dossier quarantine (avec --check-health).",
+    )
+    parser.add_argument(
+        "--summarize",
+        nargs="+",
+        help="Genere un resume .md pour les fichiers ou dossiers donnes.",
+    )
+    parser.add_argument(
+        "--extract-bib",
+        nargs="+",
+        help="Extrait la bibliographie dans un .bib.txt voisin.",
+    )
+    parser.add_argument(
+        "--test-doi",
+        nargs="+",
+        help="Teste l'extraction de DOI pour les fichiers donnes.",
+    )
+    parser.add_argument(
+        "--batch-summarize",
+        type=str,
+        help="Genere des resumes pour tous les PDFs d'une collection.",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Force la regeneration des resumes existants (avec --batch-summarize).",
+    )
+    parser.add_argument(
         "--limit",
         type=int,
         help="Limite le nombre de lignes pour --unpaywall-run-csv ou queue.",
+    )
+    parser.add_argument(
+        "--start-server",
+        action="store_true",
+        help="Lance le serveur Web FastAPI (Phase 3).",
     )
     return parser.parse_args()
 
@@ -595,6 +720,10 @@ def main() -> None:
             export_catalogs_flag=True,
             export_bib_flag=bool(args.export_bib),
         )
+        print(result)
+        return
+    if args.retro_clean_library:
+        result = retro_clean_library(dry_run=args.dry_run)
         print(result)
         return
     if args.make_sample_csv:
@@ -611,6 +740,16 @@ def main() -> None:
         raise SystemExit(_run_manual_ingest_ui())
     if args.manual_ingest_one:
         raise SystemExit(_run_manual_ingest_one(args.pdf))
+    if args.check_health:
+        raise SystemExit(_run_check_health(args.move_corrupt))
+    if args.summarize:
+        raise SystemExit(_run_summarize(args.summarize))
+    if args.extract_bib:
+        raise SystemExit(_run_extract_bib(args.extract_bib))
+    if args.test_doi:
+        raise SystemExit(_run_test_doi(args.test_doi))
+    if args.batch_summarize:
+        raise SystemExit(_run_batch_summarize(args.batch_summarize, args.force))
     if args.unpaywall_fetch_one:
         raise SystemExit(_run_unpaywall_fetch_one(args.doi))
     if args.unpaywall_demo_batch:
@@ -625,6 +764,14 @@ def main() -> None:
         )
     if args.unpaywall_dry_run:
         raise SystemExit(_run_unpaywall_dry_run(args.doi))
+    if args.start_server:
+        try:
+            from motherload_projet.server.main import start_server
+            start_server()
+        except ImportError as e:
+            print(f"Erreur: Dependances manquantes ({e}). Run: pip install -r requirements.txt")
+            return
+        return
 
     print("motherload_projet MVP")
 

@@ -13,9 +13,59 @@ from pypdf import PdfReader
 
 from motherload_projet.library.master_catalog import load_master_catalog
 from motherload_projet.library.paths import bibliotheque_root, library_root
+from motherload_projet.library.models import get_connection, get_db_path
 from motherload_projet.data_mining.recuperation_article.uqar_proxy_queue import (
     latest_to_be_downloaded,
 )
+
+
+def _use_sqlite() -> bool:
+    """Check if SQLite database is available and should be used."""
+    try:
+        db_path = get_db_path()
+        return db_path.exists()
+    except Exception:
+        return False
+
+
+def _load_from_sqlite() -> pd.DataFrame:
+    """Load master catalog from SQLite database."""
+    conn = get_connection()
+    query = """
+        SELECT 
+            p.doi,
+            p.title,
+            p.year,
+            p.abstract,
+            p.journal,
+            p.volume,
+            p.issue,
+            p.pages,
+            p.publisher,
+            p.pdf_path,
+            p.file_hash,
+            p.url,
+            p.added_at,
+            p.source,
+            p.status,
+            p.type,
+            p.is_oa,
+            p.oa_status,
+            GROUP_CONCAT(DISTINCT a.name, '; ') as authors,
+            GROUP_CONCAT(DISTINCT c.name, '; ') as collection,
+            GROUP_CONCAT(DISTINCT t.name, '; ') as keywords
+        FROM papers p
+        LEFT JOIN paper_authors pa ON p.id = pa.paper_id
+        LEFT JOIN authors a ON pa.author_id = a.id
+        LEFT JOIN paper_collections pc ON p.id = pc.paper_id
+        LEFT JOIN collections c ON pc.collection_id = c.id
+        LEFT JOIN paper_tags pt ON p.id = pt.paper_id
+        LEFT JOIN tags t ON pt.tag_id = t.id
+        GROUP BY p.id
+    """
+    df = pd.read_sql_query(query, conn)
+    conn.close()
+    return df
 
 
 def count_pdfs(root: Path | None = None) -> int:
@@ -28,6 +78,17 @@ def count_pdfs(root: Path | None = None) -> int:
 
 def count_master(master_path: Path | None = None) -> int:
     """Compte les entrees master."""
+    if _use_sqlite():
+        try:
+            conn = get_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM papers")
+            count = cursor.fetchone()[0]
+            conn.close()
+            return count
+        except Exception:
+            pass  # Fallback to CSV
+    
     path = master_path or (bibliotheque_root() / "master_catalog.csv")
     if not path.exists():
         return 0
@@ -170,6 +231,12 @@ def load_scan_runs(limit: int = 2) -> list[dict[str, Any]]:
 
 def load_master_frame(master_path: Path | None = None) -> pd.DataFrame:
     """Charge le master catalog."""
+    if _use_sqlite():
+        try:
+            return _load_from_sqlite()
+        except Exception as e:
+            print(f"SQLite load failed, falling back to CSV: {e}")
+    
     path = master_path or (bibliotheque_root() / "master_catalog.csv")
     df = load_master_catalog(path)
     return df.copy()

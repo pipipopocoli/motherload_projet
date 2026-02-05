@@ -1,0 +1,27 @@
+============================================================
+RAPPORT DE TEST - PHASE 4 INTEGRATION
+============================================================
+Début: 2026-02-05T03:05:30.339558
+Durée: 54.91s
+
+STATISTIQUES:
+  - PDFs téléchargés (Crawler): 0
+  - Shadow Mining (Succès): 0
+  - Shadow Mining (Échecs): 5
+  - User-Agent Rotations vérifiées: 7
+  - PDFs ingérés par Librarian: 0
+  - Erreurs totales: 0
+
+DÉTAILS DES TESTS:
+✓ User-Agent Rotation: PASS
+   7 User-Agents différents sur 10 requêtes
+✗ Shadow Mining: PARTIAL
+   0/5 DOIs résolus (0.0%)
+✗ Crawler Stress Test: FAIL
+   Aucun PDF téléchargé
+✗ Librarian Integration: SKIP
+   Aucun PDF disponible pour test
+✓ Error Logging: PASS
+   Log actif: /Users/oliviercloutier/Desktop/motherload_projet/mining_errors.log
+
+============================================================

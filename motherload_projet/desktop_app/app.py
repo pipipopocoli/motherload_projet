@@ -27,6 +27,11 @@ from motherload_projet.ecosysteme_visualisation.indexer import (
     notes_path,
     rebuild_index,
 )
+import queue
+from motherload_projet.desktop_app.agent_status import AgentStatusManager, UI_QUEUE, AgentName, AgentState
+from motherload_projet.ui.dashboard import DashboardWidget
+from motherload_projet.ui.log_console import LogConsole
+
 from motherload_projet.desktop_app.data import (
     count_indexed_articles,
     count_indexed_books,
@@ -56,6 +61,40 @@ from motherload_projet.library.paths import (
 from motherload_projet.data_mining.recuperation_article.run_unpaywall_batch import (
     run_unpaywall_csv_batch,
 )
+
+
+def _analyze_csv(path: Path) -> dict[str, int]:
+    """Analyse un CSV pour compter les entrees valides."""
+    try:
+        df = pd.read_csv(path)
+        total = len(df)
+        valid_doi = 0
+        valid_isbn = 0
+        
+        # Check for DOI column
+        doi_col = None
+        for col in ["doi", "DOI", "doi_clean"]:
+            if col in df.columns:
+                doi_col = col
+                break
+        
+        if doi_col:
+             # Count non-empty DOIs
+             valid_doi = df[doi_col].fillna("").astype(str).str.strip().ne("").sum()
+
+        # Check for ISBN column (if any)
+        isbn_col = None
+        for col in ["isbn", "ISBN"]:
+            if col in df.columns:
+                isbn_col = col
+                break
+        
+        if isbn_col:
+            valid_isbn = df[isbn_col].fillna("").astype(str).str.strip().ne("").sum()
+
+        return {"total": total, "valid_doi": valid_doi, "valid_isbn": valid_isbn}
+    except Exception:
+        return {"total": 0, "valid_doi": 0, "valid_isbn": 0}
 
 try:  # optionnel
     from motherload_projet.ecosysteme_visualisation.watcher import start_watchdog
@@ -216,6 +255,46 @@ def run_app() -> None:
 
     notebook = ttk.Notebook(root)
     notebook.pack(fill="both", expand=True)
+
+    # --- Initialisation des managers UI ---
+    status_manager = AgentStatusManager()
+    
+    # --- Polling Loop pour Threading Safe UI Update ---
+    def _poll_ui_queue():
+        try:
+            while True:
+                # Non-blocking get
+                msg_type, data = UI_QUEUE.get_nowait()
+                
+                if msg_type == "log":
+                    log_console.append_log(
+                        data["agent"], 
+                        data["message"], 
+                        data["level"]
+                    )
+                elif msg_type == "status":
+                    dashboard.update_agent(data)
+                    
+                UI_QUEUE.task_done()
+        except queue.Empty:
+            pass
+        finally:
+            # Re-schedule poll in 100ms
+            root.after(100, _poll_ui_queue)
+    
+    # Start polling
+    root.after(100, _poll_ui_queue)
+
+    # --- Onglet Motherboard (Dashboard) ---
+    dash_tab = ttk.Frame(notebook)
+    notebook.add(dash_tab, text="Motherboard")
+    
+    dashboard = DashboardWidget(dash_tab, library_root=library_root(), bibliotheque_root=bibliotheque_root())
+    dashboard.pack(fill="both", expand=True, padx=20, pady=20)
+    
+    # Message de bienvenue
+    status_manager.emit_log(AgentName.SYSTEM, "Initialisation de l'interface Architecte...")
+
 
     # --- Onglet Ingestion ---
     ingest_tab = ttk.Frame(notebook, padding=12)
@@ -387,9 +466,16 @@ def run_app() -> None:
     if not labels:
         append_log("Aucune collection detectee. Creez un dossier dans collections/.")
 
-    # --- Onglet Recherche Web (CSV) ---
-    csv_tab = ttk.Frame(notebook, padding=12)
-    notebook.add(csv_tab, text="Recherche web")
+    # --- Onglet Mining (Recherche Web + Queue + Viz) ---
+    mining_tab = ttk.Frame(notebook, padding=12)
+    notebook.add(mining_tab, text="Mining")
+    
+    mining_notebook = ttk.Notebook(mining_tab)
+    mining_notebook.pack(fill="both", expand=True)
+
+    # --- Onglet Mining > Recherche Web (CSV) ---
+    csv_tab = ttk.Frame(mining_notebook, padding=12)
+    mining_notebook.add(csv_tab, text="Web Search")
     csv_tab_ref["tab"] = csv_tab
 
     csv_status_var = tk.StringVar(value="")
@@ -469,15 +555,41 @@ def run_app() -> None:
     def _run_csv_batch(csv_path: Path) -> None:
         label = collection_var.get().strip()
         collection_path = resolve_collection_path(label)
+        
+        status_manager.emit_log(AgentName.MINER, f"Debut batch: {csv_path.name}")
+        status_manager.update_agent(AgentName.MINER, "Initialisation Batch...", is_active=True)
+        
         if collection_path is None:
             root.after(0, lambda: _set_csv_status("Collection manquante."))
+            status_manager.emit_log(AgentName.MINER, "Erreur: Collection manquante", "ERROR")
+            status_manager.reset_agent(AgentName.MINER)
             return
+
         limit_value = None
         if csv_limit_var.get().strip().isdigit():
             limit_value = int(csv_limit_var.get().strip())
 
         def _cb(event: dict) -> None:
+            # Mise a jour locale (barre progress onglet Mining)
             root.after(0, lambda: _update_csv_progress(event))
+            
+            # Mise a jour Dashboard Agent
+            stage = event.get("stage")
+            if stage == "start":
+                status_manager.update_agent(AgentName.MINER, "Lecture CSV", 5, True)
+            elif stage == "item":
+                done = int(event.get("done") or 0)
+                total = int(event.get("total") or 0)
+                percent = int((done / total) * 100) if total > 0 else 0
+                doi = str(event.get("doi") or "")
+                
+                status_manager.update_agent(AgentName.MINER, f"Mining: {doi}", percent, True)
+                status_manager.emit_log(AgentName.MINER, f"Traitement: {doi}")
+                
+            elif stage == "done":
+                status_manager.update_agent(AgentName.MINER, "Termine", 100, False)
+                status_manager.emit_log(AgentName.MINER, "Batch termine avec succes.")
+                root.after(5000, lambda: status_manager.reset_agent(AgentName.MINER)) # Reset apres 5s
 
         run_unpaywall_csv_batch(
             csv_path,
@@ -506,13 +618,33 @@ def run_app() -> None:
             filetypes=[("CSV", "*.csv")],
         )
         if value:
-            start_csv_run(Path(value))
+            # Analyse pre-flight also for manual selection
+            path = Path(value)
+            stats = _analyze_csv(path)
+            msg = (
+                f"CSV Analyse: {stats['total']} lignes.\n"
+                f"- Articles: {stats['valid_doi']}\n"
+                f"- Livres: {stats['valid_isbn']}\n"
+                "Lancement..."
+            )
+            _set_csv_status(msg)
+            root.after(1500, lambda: start_csv_run(path))
 
     def handle_csv_drop(paths: list[str]) -> None:
         for item in paths:
             path = Path(item)
             if path.suffix.lower() == ".csv":
-                start_csv_run(path)
+                # Analyse pre-flight
+                stats = _analyze_csv(path)
+                msg = (
+                    f"CSV Analyse: {stats['total']} lignes.\n"
+                    f"- Articles (DOI): {stats['valid_doi']}\n"
+                    f"- Livres (ISBN): {stats['valid_isbn']}\n"
+                    "Lancement..."
+                )
+                _set_csv_status(msg)
+                # Attendre un peu pour que l'utilisateur lise
+                root.after(1500, lambda: start_csv_run(path))
                 return
         _set_csv_status("Aucun CSV detecte.")
 
@@ -561,9 +693,102 @@ def run_app() -> None:
 
     ttk.Label(csv_tab, textvariable=csv_status_var).pack(anchor="w", pady=(6, 0))
 
-    # --- Onglet Recherche ---
-    search_tab = ttk.Frame(notebook, padding=12)
-    notebook.add(search_tab, text="Recherche")
+    # --- Onglet Mining > Queue (A Telecharger) ---
+    queue_tab = ttk.Frame(mining_notebook, padding=12)
+    mining_notebook.add(queue_tab, text="To Download")
+    
+    # -- Visualization Canvas in Queue Tab --
+    viz_frame = ttk.Frame(queue_tab)
+    viz_frame.pack(fill="x", pady=(0, 10))
+    ttk.Label(viz_frame, text="Visualization de la Queue").pack(anchor="w")
+    viz_canvas = tk.Canvas(viz_frame, height=40, bg="#f0f0f0")
+    viz_canvas.pack(fill="x", expand=True)
+
+    queue_tree = ttk.Treeview(queue_tab, columns=("file", "count", "modified"), show="headings", height=10)
+    queue_tree.heading("file", text="Fichier Queue")
+    queue_tree.heading("count", text="Articles Restants")
+    queue_tree.heading("modified", text="Date")
+    queue_tree.column("file", width=400)
+    queue_tree.column("count", width=100)
+    queue_tree.column("modified", width=150)
+    queue_tree.pack(fill="both", expand=True, pady=(0, 8))
+    
+    def refresh_queue() -> None:
+        for item in queue_tree.get_children():
+            queue_tree.delete(item)
+        
+        bib_root = bibliotheque_root()
+        if not bib_root.exists():
+            return
+            
+        queue_files = sorted(bib_root.glob("to_be_downloaded_*.csv"), key=os.path.getmtime, reverse=True)
+        total_items = 0
+        total_files = len(queue_files)
+        
+        for qf in queue_files:
+            try:
+                # Lecture rapide pour compter
+                df = pd.read_csv(qf)
+                count = len(df)
+                total_items += count
+            except:
+                count = "?"
+            
+            mod_time = datetime.fromtimestamp(qf.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
+            queue_tree.insert("", "end", values=(qf.name, count, mod_time), tags=(str(qf),))
+            
+        # Draw Visualization (Simple Bar)
+        viz_canvas.delete("all")
+        width = viz_canvas.winfo_width()
+        if width > 1:
+            # Draw a conceptual "load" bar
+            # Normalized log scale or simple ratio
+            bar_width = min(width * (total_items / 1000), width) # 1000 items fill bar
+            viz_canvas.create_rectangle(0, 0, bar_width, 40, fill="#4caf50", outline="")
+            viz_canvas.create_text(10, 20, text=f"{total_items} items en attente ({total_files} fichiers)", anchor="w")
+
+    def retry_selected_queue() -> None:
+        selected = queue_tree.selection()
+        if not selected:
+            return
+        
+        item = queue_tree.item(selected[0])
+        filename = item["values"][0] # type: ignore
+        file_path = bibliotheque_root() / filename
+        
+        if file_path.exists():
+             # Switch to web tab and run
+             notebook.select(mining_tab) # Select Parent
+             mining_notebook.select(csv_tab) # Select Child
+             start_csv_run(file_path)
+
+    ttk.Button(queue_tab, text="Rafraichir", command=refresh_queue).pack(side="left")
+    ttk.Button(queue_tab, text="Relancer Selection (Shadow Mining)", command=retry_selected_queue).pack(side="left", padx=8)
+    
+    # Auto-refresh on show
+    def on_tab_change(event: tk.Event) -> None:
+        # Check simple mining tab focus
+        try:
+             current = notebook.index(notebook.select())
+             if current == notebook.index(mining_tab):
+                  # Could verify child tab, but simple refresh is safe
+                  refresh_queue()
+                  viz_canvas.update_idletasks() # Ensure width
+                  refresh_queue() # Redraw with correct width
+        except: pass
+            
+    notebook.bind("<<NotebookTabChanged>>", on_tab_change)
+
+    # --- Onglet Scanning (Recherche Master + Metadonnees) ---
+    scanning_tab = ttk.Frame(notebook, padding=12)
+    notebook.add(scanning_tab, text="Scanning")
+    
+    scanning_notebook = ttk.Notebook(scanning_tab)
+    scanning_notebook.pack(fill="both", expand=True)
+
+    # --- Onglet Scanning > Recherche ---
+    search_tab = ttk.Frame(scanning_notebook, padding=12)
+    scanning_notebook.add(search_tab, text="Recherche Master")
 
     search_var = tk.StringVar()
     field_var = tk.StringVar(value="Tous")
@@ -583,6 +808,9 @@ def run_app() -> None:
     def refresh_master() -> None:
         nonlocal master_df
         master_df = load_master_frame()
+        # set_status not available here direct, assume global or pass ref
+        # Re-using previous set_status logic if scope allows. 
+        # Python nested functions scope: set_status is defined in run_app, so it's visible.
         set_status("Master catalog recharge.")
 
     def update_results(frame: ttk.Treeview, data: list[tuple[str, ...]]) -> None:
@@ -669,9 +897,9 @@ def run_app() -> None:
     )
     results_view.bind("<Double-1>", lambda _event: open_selected())
 
-    # --- Onglet Metadonnees ---
-    meta_tab = ttk.Frame(notebook, padding=12)
-    notebook.add(meta_tab, text="Metadonnees")
+    # --- Onglet Scanning > Metadonnees ---
+    meta_tab = ttk.Frame(scanning_notebook, padding=12)
+    scanning_notebook.add(meta_tab, text="Analyse Metadonnees")
 
     meta_keyword_var = tk.StringVar()
     meta_pages_var = tk.StringVar(value="2")
@@ -1663,7 +1891,17 @@ def run_app() -> None:
         root.destroy()
 
     root.protocol("WM_DELETE_WINDOW", _on_close)
+    # --- Console Log Persistante (Bas de fenetre) ---
+    log_frame = ttk.Frame(root, height=150)
+    log_frame.pack(side="bottom", fill="x")
+    log_console = LogConsole(log_frame)
+    log_console.pack(fill="both", expand=True)
+    
+    # --- Fin ---
     root.mainloop()
+
+if __name__ == "__main__":
+    run_app()
 
 
 if __name__ == "__main__":

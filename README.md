@@ -186,3 +186,60 @@ Pipeline scan (10 etapes):
 2) Lancer `--manual-ingest-one` sur ce fichier.
 3) Verifier le deplacement dans `grand_librairy/pdfs/<collection>/<subdir>/`.
 4) Verifier que `master_catalog.csv` contient `file_hash` et `pdf_path`.
+
+## Phase 4 (Analyst) - LLM Summarization
+
+### Configuration LLM
+
+Le système de résumés supporte trois modes de fonctionnement :
+
+#### 1. OpenAI (Production)
+Configurer dans `.env` :
+```bash
+OPENAI_API_KEY=sk-...
+```
+Modèle utilisé : `gpt-4o-mini`
+
+#### 2. Ollama (Local/Offline)
+Installer Ollama localement, puis configurer dans `.env` :
+```bash
+OLLAMA_ENDPOINT=http://localhost:11434
+OLLAMA_MODEL=llama3.2
+```
+
+#### 3. Mock (Tests)
+Si aucune clé n'est configurée, le système génère des résumés simulés pour les tests.
+
+### Commandes
+
+Résumer un seul PDF :
+```bash
+python -m motherload_projet.cli --summarize /chemin/vers/article.pdf
+```
+
+Résumer une collection entière :
+```bash
+python -m motherload_projet.cli --batch-summarize ~/Desktop/grand_librairy/collections/MaCollection
+```
+
+Forcer la régénération des résumés existants :
+```bash
+python -m motherload_projet.cli --batch-summarize ~/Desktop/grand_librairy/collections/MaCollection --force
+```
+
+Vérifier la santé des PDFs :
+```bash
+python -m motherload_projet.cli --check-health
+python -m motherload_projet.cli --check-health --move-corrupt
+```
+
+Extraire DOI et bibliographies :
+```bash
+python -m motherload_projet.cli --test-doi /chemin/vers/article.pdf
+python -m motherload_projet.cli --extract-bib /chemin/vers/article.pdf
+```
+
+### Sortie
+
+- Résumés : `article.md` à côté de chaque `article.pdf`
+- Logs d'erreurs : `summarization_errors_YYYYMMDD_HHMMSS.log` dans la collection

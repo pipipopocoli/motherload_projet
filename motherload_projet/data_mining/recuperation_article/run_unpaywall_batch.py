@@ -28,6 +28,7 @@ from motherload_projet.data_mining.recuperation_oa.resolver import (
     resolve_pdf_urls_from_unpaywall,
 )
 from motherload_projet.ui.collections_menu import choose_collection
+from motherload_projet.data_mining.scihub_connector import resolve_scihub_url
 
 DEFAULT_MIN_PDF_KB = 100
 DEFAULT_PROGRESS_EVERY = 10
@@ -544,6 +545,44 @@ def attempt_unpaywall_download(
     if last_reason is None:
         last_reason = "NO_PDF_FOUND"
 
+    # --- SHADOW LIBRARY FALLBACK (Sci-Hub) ---
+    # Si on arrive ici, Unpaywall a echoue.
+    emit("Tentative Shadow Library (Sci-Hub)...")
+    record_method("scihub_fallback")
+    
+    shadow_result = resolve_scihub_url(doi)
+    if shadow_result.get("status") == "ok":
+         pdf_url = shadow_result.get("pdf_url")
+         if pdf_url:
+             emit(f"Sci-Hub Found: {pdf_url}")
+             ok_shadow, status_code, _, final_shadow_url, shadow_bytes, error_code = fetch_url(pdf_url)
+             if ok_shadow:
+                 ok_pdf, code = validate_pdf_bytes(shadow_bytes, min_size_kb=min_pdf_kb)
+                 if ok_pdf:
+                     pdf_path = store_pdf_bytes(collection, doi, shadow_bytes)
+                     emit(f"Shadow PDF valide: {pdf_path}")
+                     return {
+                        "doi": doi,
+                        "status": "downloaded",
+                        "reason_code": "SHADOW_OK",
+                        "pdf_path": pdf_path,
+                        "final_url": final_shadow_url,
+                        "candidates_total": candidates_total,
+                        "tried_count": tried_count + 1,
+                        "error": None,
+                        "pdf_bytes_len": len(shadow_bytes),
+                        "is_oa": is_oa,
+                        "oa_status": "shadow",
+                        "url_for_pdf": pdf_url,
+                        "last_http_status": status_code,
+                        "tried_methods": "|".join(tried_methods),
+                        "last_method": "scihub_direct"
+                     }
+                 else:
+                     emit(f"Shadow PDF invalide: {code}")
+             else:
+                 emit(f"Shadow Fetch Error: {status_code}")
+    
     return {
         "doi": doi,
         "status": "failed",

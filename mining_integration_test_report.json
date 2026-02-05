@@ -1,0 +1,43 @@
+{
+  "timestamp": "2026-02-05T03:05:30.339558",
+  "stats": {
+    "crawler_pdfs": 0,
+    "shadow_successes": 0,
+    "shadow_failures": 5,
+    "ua_rotations": 7,
+    "librarian_ingests": 0,
+    "total_errors": 0
+  },
+  "tests": [
+    {
+      "name": "User-Agent Rotation",
+      "status": "PASS",
+      "details": "7 User-Agents diff\u00e9rents sur 10 requ\u00eates",
+      "timestamp": "2026-02-05T03:05:30.339591"
+    },
+    {
+      "name": "Shadow Mining",
+      "status": "PARTIAL",
+      "details": "0/5 DOIs r\u00e9solus (0.0%)",
+      "timestamp": "2026-02-05T03:06:23.413481"
+    },
+    {
+      "name": "Crawler Stress Test",
+      "status": "FAIL",
+      "details": "Aucun PDF t\u00e9l\u00e9charg\u00e9",
+      "timestamp": "2026-02-05T03:06:24.682540"
+    },
+    {
+      "name": "Librarian Integration",
+      "status": "SKIP",
+      "details": "Aucun PDF disponible pour test",
+      "timestamp": "2026-02-05T03:06:24.682625"
+    },
+    {
+      "name": "Error Logging",
+      "status": "PASS",
+      "details": "Log actif: /Users/oliviercloutier/Desktop/motherload_projet/mining_errors.log",
+      "timestamp": "2026-02-05T03:06:25.253731"
+    }
+  ]
+}
