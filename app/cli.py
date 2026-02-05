@@ -9,6 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from app.core.models import init_db
+from scripts.benchmark_parsing import run_benchmark
 
 
 def cmd_init_db(args):
@@ -132,6 +133,21 @@ def cmd_run_acquisition(args):
         return 1
 
 
+def cmd_benchmark_parsing(args):
+    """Benchmark PDF parsing against a golden corpus."""
+    corpus_dir = Path(args.corpus)
+    if not corpus_dir.exists():
+        print(f"✗ Corpus directory not found: {corpus_dir}", file=sys.stderr)
+        return 1
+    try:
+        report_path = run_benchmark(corpus_dir, args.output)
+    except FileNotFoundError as exc:
+        print(f"✗ {exc}", file=sys.stderr)
+        return 1
+    print(f"✓ Benchmark report written to: {report_path}")
+    return 0
+
+
 def main():
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
@@ -141,6 +157,7 @@ def main():
 Examples:
   python app/cli.py init-db              Initialize the database
   python app/cli.py export-articles      Export articles to CSV (coming soon)
+  python app/cli.py benchmark-parsing --corpus inputs/golden_corpus
         """
     )
     
@@ -193,6 +210,25 @@ Examples:
         help="Simulate without saving to database"
     )
     parser_acquire.set_defaults(func=cmd_run_acquisition)
+
+    # benchmark-parsing command
+    parser_benchmark = subparsers.add_parser(
+        "benchmark-parsing",
+        help="Benchmark PDF parsing against golden corpus",
+    )
+    parser_benchmark.add_argument(
+        "--corpus",
+        type=str,
+        default="inputs/golden_corpus",
+        help="Directory containing PDF fixtures",
+    )
+    parser_benchmark.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="Optional output JSON path",
+    )
+    parser_benchmark.set_defaults(func=cmd_benchmark_parsing)
     
     # Parse arguments
     args = parser.parse_args()

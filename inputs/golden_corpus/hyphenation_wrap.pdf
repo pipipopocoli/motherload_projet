@@ -1,0 +1,66 @@
+%PDF-1.3
+%‚„œ”
+1 0 obj
+<<
+/Type /Pages
+/Count 1
+/Kids [ 4 0 R ]
+>>
+endobj
+2 0 obj
+<<
+/Producer (pypdf)
+>>
+endobj
+3 0 obj
+<<
+/Type /Catalog
+/Pages 1 0 R
+>>
+endobj
+4 0 obj
+<<
+/Type /Page
+/Resources <<
+/Font <<
+/F1 <<
+/Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica
+>>
+>>
+>>
+/MediaBox [ 0.0 0.0 612 792 ]
+/Parent 1 0 R
+/Contents <<
+/Length 182
+>>
+stream
+BT /F1 12 Tf 14 TL 72 720 Td
+(This line ends with a hyphen-) Tj
+T*
+(ated word across lines to simulate wraps.) Tj
+T*
+(Another hyphen-) Tj
+T*
+(ated example for OCR-like output.) Tj
+ET
+endstream
+>>
+endobj
+xref
+0 5
+0000000000 65535 f 
+0000000015 00000 n 
+0000000074 00000 n 
+0000000113 00000 n 
+0000000162 00000 n 
+trailer
+<<
+/Size 5
+/Root 3 0 R
+/Info 2 0 R
+>>
+startxref
+555
+%%EOF

@@ -1,0 +1,68 @@
+%PDF-1.3
+%‚„œ”
+1 0 obj
+<<
+/Type /Pages
+/Count 1
+/Kids [ 4 0 R ]
+>>
+endobj
+2 0 obj
+<<
+/Producer (pypdf)
+>>
+endobj
+3 0 obj
+<<
+/Type /Catalog
+/Pages 1 0 R
+>>
+endobj
+4 0 obj
+<<
+/Type /Page
+/Resources <<
+/Font <<
+/F1 <<
+/Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica
+>>
+>>
+>>
+/MediaBox [ 0.0 0.0 612 792 ]
+/Parent 1 0 R
+/Contents <<
+/Length 192
+>>
+stream
+BT /F1 12 Tf 14 TL 72 720 Td
+(Table 1: Results) Tj
+T*
+(Metric   | Value | Notes) Tj
+T*
+(Accuracy | 0.91  | baseline) Tj
+T*
+(Recall   | 0.88  | improved) Tj
+T*
+(F1       | 0.89  | stable) Tj
+ET
+endstream
+>>
+endobj
+xref
+0 5
+0000000000 65535 f 
+0000000015 00000 n 
+0000000074 00000 n 
+0000000113 00000 n 
+0000000162 00000 n 
+trailer
+<<
+/Size 5
+/Root 3 0 R
+/Info 2 0 R
+>>
+startxref
+565
+%%EOF
