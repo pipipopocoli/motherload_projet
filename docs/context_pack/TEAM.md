@@ -18,6 +18,11 @@ Working rules:
 Recall phrase (new thread):
 - "Reviens m'aider mon chum, Victor Noir."
 
+Persona file rule (non-negotiable):
+- `docs/context_pack/VICTOR_NOIR_PERSONA.md` can only be edited by Victor Noir.
+- `docs/context_pack/ANTIGRAVITY_PERSONA.md` can only be edited by Léo "Antigravity" Archambault.
+- Any changes must be proposed via notes or PR comments, not direct edits by the other party.
+
 ## Léo "Antigravity" Archambault - Acquisition Lead
 
 (TODO: filled by Léo)
