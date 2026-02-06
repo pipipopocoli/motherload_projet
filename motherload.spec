@@ -3,7 +3,11 @@
 from pathlib import Path
 
 block_cipher = None
-root = Path(__file__).resolve().parent
+try:
+    root = Path(__file__).resolve().parent
+except NameError:
+    # __file__ may be undefined in some PyInstaller executions
+    root = Path.cwd()
 
 app_entry = root / "app" / "main.py"
 
