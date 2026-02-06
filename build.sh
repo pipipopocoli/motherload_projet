@@ -11,7 +11,7 @@ echo ""
 # Vérifier la venv
 if [ ! -d ".venv" ]; then
     echo "❌ Erreur: .venv non trouvé"
-    echo "Créez d'abord la venv: python3.11 -m venv .venv"
+    echo "Créez d'abord la venv: python3.12 -m venv .venv"
     exit 1
 fi
 
